@@ -12,6 +12,7 @@ class SyncReportDTO
     public int $updatedCount = 0;
     public int $deletedCount = 0;
     public int $initialInsertCount = 0;
+    /** @var array<int, array{level: string, message: string, context: array<string, mixed>}> */
     private array $logMessages = [];
 
     /**
@@ -35,7 +36,7 @@ class SyncReportDTO
      *
      * @param string $message The log message
      * @param string $level Optional log level (default: 'info')
-     * @param array $context Optional context data
+     * @param array<string, mixed> $context Optional context data
      */
     public function addLogMessage(string $message, string $level = 'info', array $context = []): void
     {
@@ -49,7 +50,7 @@ class SyncReportDTO
     /**
      * Get all log messages.
      *
-     * @return array
+     * @return array<int, array{level: string, message: string, context: array<string, mixed>}>
      */
     public function getLogMessages(): array
     {

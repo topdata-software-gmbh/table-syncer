@@ -89,7 +89,7 @@ class GenericIndexManager
      *
      * @param Connection $connection
      * @param string $tableName
-     * @param array $columns
+     * @param array<int, string> $columns
      * @param bool $isUnique
      * @param string|null $indexName
      * @return void

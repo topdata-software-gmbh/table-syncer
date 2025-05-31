@@ -40,6 +40,19 @@ class TableSyncConfigDTO
     /** @var string Default placeholder for non-nullable datetime columns */
     public string $placeholderDatetime = '2222-02-22 00:00:00';
 
+    /**
+     * @param Connection $sourceConnection
+     * @param string $sourceTableName
+     * @param array<string, string> $primaryKeyColumnMap
+     * @param array<string, string> $dataColumnMapping
+     * @param Connection $targetConnection
+     * @param string $targetLiveTableName
+     * @param array<int, string> $columnsForContentHash
+     * @param MetadataColumnNamesDTO|null $metadataColumns
+     * @param array<int, string> $nonNullableDatetimeSourceColumns
+     * @param string|null $targetTempTableName
+     * @param string|null $placeholderDatetime
+     */
     public function __construct(
         Connection $sourceConnection,
         string $sourceTableName,

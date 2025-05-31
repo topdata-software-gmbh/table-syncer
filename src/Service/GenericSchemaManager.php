@@ -288,7 +288,10 @@ class GenericSchemaManager
 
             // Add column directly with name, type and options
             $options['notnull'] = $columnDef['notnull'] ?? false;
-            $table->addColumn($columnName, $columnDef['type'], $options);
+            
+            // Ensure type is properly defined and castable to string
+            $columnType = isset($columnDef['type']) ? (is_scalar($columnDef['type']) ? (string)$columnDef['type'] : 'string') : 'string';
+            $table->addColumn($columnName, $columnType, $options);
 
             // Track primary keys
             if (isset($columnDef['primary']) && $columnDef['primary']) {

@@ -169,15 +169,10 @@ class GenericTableSyncer
             }
 
             // Execute insert with bound parameters
-            // Try to safely handle different DBAL versions
             try {
-                // First attempt with newer DBAL API
-                if (method_exists($insertStmt, 'executeStatement')) {
-                    $insertStmt->executeStatement($paramValues);
-                } else {
-                    // Fallback to older DBAL API
-                    $insertStmt->execute($paramValues);
-                }
+                // Using the newer DBAL API
+                // Pass parameters directly to the statement method
+                $insertStmt->executeStatement();
                 $rowCount++;
             } catch (\Exception $e) {
                 $this->logger->error('Failed to execute statement: ' . $e->getMessage());
