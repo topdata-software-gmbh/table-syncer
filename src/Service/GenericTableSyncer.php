@@ -516,7 +516,7 @@ class GenericTableSyncer
      * @param mixed $value The value to determine type for
      * @return int DBAL ParameterType constant (integer)
      */
-    protected function getDbalParamType(string $columnName, $value): int
+    protected function getDbalParamType(string $columnName, $value): ParameterType
     {
         if ($value === null) {
             return ParameterType::NULL;
@@ -539,7 +539,7 @@ class GenericTableSyncer
      * @param string $dbalTypeName DBAL Type name (e.g., Types::INTEGER, "string")
      * @return int DBAL ParameterType constant (integer)
      */
-    protected function dbalTypeToParameterType(string $dbalTypeName): int
+    protected function dbalTypeToParameterType(string $dbalTypeName): ParameterType
     {
         // Normalize known DBAL type constants to their string representations if needed,
         // though $dbalTypeName from schemaManager should already be the string name.
