@@ -86,19 +86,19 @@
 
 ## Phase 4: Finalize `src/Service/GenericTableSyncer.php`
 
-*   [ ] **Review `loadDataFromSourceToTemp(...)`:**
-    *   [ ] Verify correct usage of `$config->placeholderDatetime`.
-    *   [ ] Verify consistent use of `dbalTypeToParameterType()` with `getSourceColumnTypes()`.
-*   [ ] **Review `synchronizeTempToLive(...)`:**
-    *   [ ] Remove any internal batching logic.
-    *   [ ] Ensure SQL (UPDATE, DELETE, INSERT SELECT) is MySQL/MariaDB focused.
-    *   [ ] Verify all identifiers are quoted (`$targetConn->quoteIdentifier()`).
-    *   [ ] Implement transactionality (begin, commit, rollback on error).
-    *   [ ] Re-evaluate/remove redundant `ensureDatetimeValues` calls on data from temp table.
-*   [ ] **Error Handling:**
-    *   [ ] Ensure "fail loudly" principle: critical errors throw `TableSyncerException` (wrapping original if useful).
-*   [ ] **Logging:**
-    *   [ ] Add/enhance contextual logging (DEBUG for SQL, INFO for counts).
+*   [x] **Review `loadDataFromSourceToTemp(...)`:**
+    *   [x] Verify correct usage of `$config->placeholderDatetime`.
+    *   [x] Verify consistent use of `dbalTypeToParameterType()` with `getSourceColumnTypes()`.
+*   [x] **Review `synchronizeTempToLive(...)`:**
+    *   [x] Remove any internal batching logic.
+    *   [x] Ensure SQL (UPDATE, DELETE, INSERT SELECT) is MySQL/MariaDB focused.
+    *   [x] Verify all identifiers are quoted (`$targetConn->quoteIdentifier()`).
+    *   [x] Implement transactionality (begin, commit, rollback on error).
+    *   [x] Re-evaluate/remove redundant `ensureDatetimeValues` calls on data from temp table.
+*   [x] **Error Handling:**
+    *   [x] Ensure "fail loudly" principle: critical errors throw `TableSyncerException` (wrapping original if useful).
+*   [x] **Logging:**
+    *   [x] Add/enhance contextual logging (DEBUG for SQL, INFO for counts).
 
 ## Phase 5: Comprehensive Unit Testing
 
@@ -129,12 +129,12 @@
 
 ## Phase 6: Documentation and Finalization
 
-*   [ ] **`README.md` Updates:**
-    *   [ ] Reflect constructor injection for `GenericTableSyncer`.
-    *   [ ] Update `TableSyncConfigDTO` examples (`placeholderDatetime`).
-    *   [ ] Explain `GenericSchemaManager`'s role in table handling.
-*   [ ] **`CHANGELOG.md` Update:**
-    *   [ ] Add entry for the completed/fixed version.
+*   [x] **`README.md` Updates:**
+    *   [x] Reflect constructor injection for `GenericTableSyncer`.
+    *   [x] Update `TableSyncConfigDTO` examples (`placeholderDatetime`).
+    *   [x] Explain `GenericSchemaManager`'s role in table handling.
+*   [x] **`CHANGELOG.md` Update:**
+    *   [x] Add entry for the completed/fixed version.
 *   [ ] **Code Style & Static Analysis:**
     *   [ ] Run `composer cs-fix`.
     *   [ ] Run `composer stan` and address issues.

@@ -60,17 +60,23 @@ $config = new TableSyncConfigDTO([
     'dataColumnMapping' => ['name' => 'full_name', 'email' => 'email_address'],
     'columnsForContentHash' => ['name', 'email'],
     'nonNullableDatetimeSourceColumns' => ['created_at', 'updated_at'],
-    'placeholderDatetime' => new DateTime('1970-01-01'),
+    'placeholderDatetime' => '2222-02-22 00:00:00',  // Placeholder for non-nullable datetime columns
     'metadataColumns' => ['created_at', 'updated_at'],
     'targetColumnTypeOverrides' => [],
     'targetColumnLengthOverrides' => [],
 ]);
 
-// Create the syncer
-$syncer = new GenericTableSyncer($logger);
+// Create the service dependencies
+$schemaManager = new GenericSchemaManager($logger);
+$indexManager = new GenericIndexManager($logger);
+$dataHasher = new GenericDataHasher($logger);
 
-// Run the synchronization
-$report = $syncer->sync($config);
+// Create the syncer with dependency injection
+$syncer = new GenericTableSyncer($schemaManager, $indexManager, $dataHasher, $logger);
+
+// Run the synchronization (with batch revision ID)
+$batchRevisionId = 1; // Increment this for each batch
+$report = $syncer->sync($config, $batchRevisionId);
 
 // Access the synchronization report
 foreach ($report->getLogMessages() as $message) {
@@ -92,7 +98,7 @@ The `TableSyncConfigDTO` class allows for comprehensive configuration of the syn
 - `dataColumnMapping`: Mapping of data columns between source and target
 - `columnsForContentHash`: Columns to include in the content hash for change detection
 - `nonNullableDatetimeSourceColumns`: Datetime columns that cannot be NULL in the source
-- `placeholderDatetime`: Datetime value to use for non-nullable datetime columns when source has NULL
+- `placeholderDatetime`: String containing a placeholder datetime value (e.g. '2222-02-22 00:00:00') to use for non-nullable datetime columns when source has NULL
 - `metadataColumns`: Columns to include in metadata handling
 - `targetColumnTypeOverrides`: Overrides for target column types
 - `targetColumnLengthOverrides`: Overrides for target column lengths
@@ -111,7 +117,16 @@ $metadataColumns->contentHash = 'custom_hash_column';
 
 ## PSR-3 Logging
 
-The library relies on a provided `LoggerInterface` implementation for all logging. You must implement and provide a PSR-3 compatible logger when creating the `GenericTableSyncer` instance. The library does not output logs directly to console or files.
+The library relies on a provided `LoggerInterface` implementation for all logging. You must implement and provide a PSR-3 compatible logger when creating service instances. The library does not output logs directly to console or files.
+
+## Service Architecture
+
+The library uses a service architecture with dependency injection:
+
+- `GenericTableSyncer`: Main orchestrator that manages the synchronization process
+- `GenericSchemaManager`: Handles table schema creation and validation
+- `GenericIndexManager`: Manages index creation for both temp and live tables
+- `GenericDataHasher`: Handles the content hash generation for change detection
 
 ## License
 

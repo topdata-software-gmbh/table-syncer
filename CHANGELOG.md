@@ -1,6 +1,23 @@
 # Changelog
 
-## [1.0.0] - 2025-05-31
+## [1.0.1] - 2025-05-31
+### Added
+- Enhanced error handling in synchronization process
+- Improved transaction management in GenericTableSyncer
+- More detailed logging with contextual information
+- Complete documentation of service architecture with dependency injection
+
+### Changed
+- Refactored GenericTableSyncer to use proper dependency injection
+- Updated SQL operations to be fully transactional
+- Improved handling of datetime placeholder values
+- Enhanced error messaging for troubleshooting
+
+### Fixed
+- Fixed transaction handling to ensure proper rollback on errors
+- Improved error propagation throughout the synchronization process
+
+## [1.0.0] - 2025-05-30
 ### Added
 - Initial release of Table Syncer library
 - Core database table synchronization functionality

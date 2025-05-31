@@ -37,6 +37,7 @@ class GenericTableSyncer
      * @param TableSyncConfigDTO $config
      * @param int $currentBatchRevisionId
      * @return SyncReportDTO
+     * @throws TableSyncerException
      */
     public function sync(TableSyncConfigDTO $config, int $currentBatchRevisionId): SyncReportDTO
     {
@@ -44,7 +45,11 @@ class GenericTableSyncer
         $targetConn->beginTransaction();
         try {
             $report = new SyncReportDTO();
-            $this->logger->info('Starting sync process');
+            $this->logger->info('Starting sync process', [
+                'source' => $config->sourceTableName,
+                'target' => $config->targetLiveTableName,
+                'batchRevision' => $currentBatchRevisionId
+            ]);
 
             // 1. Ensure live table exists with correct schema
             $this->schemaManager->ensureLiveTable($config);
@@ -71,13 +76,21 @@ class GenericTableSyncer
             $this->schemaManager->dropTempTable($config);
 
             $targetConn->commit();
-            $this->logger->info('Sync completed successfully');
+            $this->logger->info('Sync completed successfully', [
+                'inserted' => $report->insertedCount,
+                'updated' => $report->updatedCount,
+                'deleted' => $report->deletedCount,
+                'initialInsert' => $report->initialInsertCount
+            ]);
             return $report;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $targetConn->rollBack();
-            $this->logger->error('Sync failed: ' . $e->getMessage(), ['exception' => $e]);
+            $this->logger->error('Sync failed: ' . $e->getMessage(), [
+                'exception' => $e,
+                'source' => $config->sourceTableName,
+                'target' => $config->targetLiveTableName
+            ]);
             throw new TableSyncerException('Sync failed: ' . $e->getMessage(), 0, $e);
-        }
     }
 
     /**
@@ -170,11 +183,13 @@ class GenericTableSyncer
 
     /**
      * Synchronizes the temp table to the live table.
+     * Performs set-based operations for updating, deleting, and inserting records.
      *
      * @param TableSyncConfigDTO $config
      * @param int $currentBatchRevisionId
      * @param SyncReportDTO $report
      * @return void
+     * @throws TableSyncerException
      */
     protected function synchronizeTempToLive(TableSyncConfigDTO $config, int $currentBatchRevisionId, SyncReportDTO $report): void
     {
@@ -252,18 +267,19 @@ class GenericTableSyncer
         $report->updatedCount = $targetConn->executeStatement($sqlUpdate, [$currentBatchRevisionId]);
         $report->addLogMessage("Rows updated due to hash mismatch: {$report->updatedCount}.");
 
-        // --- C. Handle Deletes ---
-        // (rows in live that are NOT in temp table - implies temp table is complete desired state)
-        $targetPkColumns = $config->getTargetPrimaryKeyColumns();
-        $deletePkColForNullCheck = $targetConn->quoteIdentifier($targetPkColumns[0]); // Use first PK col for NULL check
-        
-        // MySQL-specific DELETE with JOIN syntax
-        $sqlDelete = "DELETE {$liveTable} FROM {$liveTable} "
-            . "LEFT JOIN {$tempTable} ON {$joinConditionStr}
-            WHERE {$tempTable}.{$deletePkColForNullCheck} IS NULL";
-        
-        $this->logger->debug('Executing delete SQL', ['sql' => $sqlDelete]);
-        $report->deletedCount = $targetConn->executeStatement($sqlDelete);
+        try {
+            // --- C. Handle Deletes ---
+            // (rows in live that are NOT in temp table - implies temp table is complete desired state)
+            $targetPkColumns = $config->getTargetPrimaryKeyColumns();
+            $deletePkColForNullCheck = $targetConn->quoteIdentifier($targetPkColumns[0]); // Use first PK col for NULL check
+            
+            // MySQL-specific DELETE with JOIN syntax
+            $sqlDelete = "DELETE {$liveTable} FROM {$liveTable} "
+                . "LEFT JOIN {$tempTable} ON {$joinConditionStr}
+                WHERE {$tempTable}.{$deletePkColForNullCheck} IS NULL";
+            
+            $this->logger->debug('Executing delete SQL', ['sql' => $sqlDelete]);
+            $report->deletedCount = $targetConn->executeStatement($sqlDelete);
         $report->addLogMessage("Rows deleted from live (not in source/temp): {$report->deletedCount}.");
 
         // --- D. Handle Inserts ---
@@ -292,6 +308,10 @@ class GenericTableSyncer
         $this->logger->debug('Executing insert SQL', ['sql' => $sqlInsert]);
         $report->insertedCount = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId]);
         $report->addLogMessage("New rows inserted into live: {$report->insertedCount}.");
+        } catch (\Throwable $e) {
+            $this->logger->error("Error during temp to live synchronization: {$e->getMessage()}", ['exception' => $e]);
+            throw new TableSyncerException("Synchronization from temp to live failed: " . $e->getMessage(), 0, $e);
+        }
     }
 
     /**
@@ -312,20 +332,20 @@ class GenericTableSyncer
             $this->logger->debug("Processing datetime column: {$column}, original value: " . print_r($originalValue, true));
 
             if (empty($row[$column])) {
-                $this->logger->warning("Setting placeholder date for NULL value in column: {$column}");
+                $this->logger->debug("Setting placeholder date for NULL value in column: {$column}");
                 $row[$column] = $specialDate;
             } elseif ($row[$column] instanceof \DateTimeInterface) {
                 // Check if it's an invalid date (like negative year)
                 $dateStr = $row[$column]->format('Y-m-d H:i:s');
                 if ($this->isDateEmptyOrInvalid($dateStr)) {
-                    $this->logger->warning("Setting placeholder date for invalid DateTimeInterface in column {$column}: {$dateStr}");
+                    $this->logger->debug("Setting placeholder date for invalid DateTimeInterface in column {$column}: {$dateStr}");
                     $row[$column] = $specialDate;
                 }
             } elseif (is_string($row[$column])) {
                 try {
                     $row[$column] = new \DateTimeImmutable($row[$column]);
                 } catch (\Exception $e) {
-                    $this->logger->warning("Setting placeholder date for invalid string format in column {$column}: " . $e->getMessage());
+                    $this->logger->debug("Setting placeholder date for invalid string format in column {$column}: " . $e->getMessage());
                     $row[$column] = $specialDate;
                 }
             }
