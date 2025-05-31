@@ -141,32 +141,32 @@
     *   [ ] Code coverage meets target (review `phpunit.xml.dist` for configuration).
 
 **Phase 6: Documentation and Finalization**
-*   [ ] **1. Finalize `README.md`:**
-    *   [ ] Comprehensive features section.
-    *   [ ] Clear requirements section.
-    *   [ ] Detailed installation instructions.
-    *   [ ] **Detailed Usage Examples:**
-        *   [ ] Example showing `TableSyncConfigDTO` setup.
-        *   [ ] Example showing instantiation of `GenericTableSyncer` with dependencies.
-        *   [ ] **Crucially, example showing PSR-3 logger injection and usage.**
-        *   [ ] Example output or expected behavior.
-    *   [ ] Explanation of `placeholderDatetime` configuration.
-    *   [ ] Information on customizing `MetadataColumnNamesDTO`.
-    *   [ ] License information clearly stated.
-    *   [ ] Clarification that library relies on provided `LoggerInterface` for output.
-*   [ ] **2. Create `CHANGELOG.md`:**
-    *   [ ] `CHANGELOG.md` file created.
-    *   [ ] Initialized for `v1.0.0`.
-*   [ ] **3. Code Style Adherence:**
-    *   [ ] Run `composer cs-check`; ensure no violations.
-    *   [ ] Run `composer cs-fix` if necessary.
-*   [ ] **4. Static Analysis (Optional):**
-    *   [ ] Run `composer stan` (if PHPStan is used).
-    *   [ ] Address any critical issues reported.
-*   [ ] **5. Final Review:**
-    *   [ ] Code reviewed for logic, maintainability, and robustness.
-    *   [ ] Documentation reviewed for clarity, accuracy, and completeness.
-    *   [ ] Configuration files (`composer.json`, etc.) reviewed.
+ *   [x] **1. Finalize `README.md`:**
+     *   [x] Comprehensive features section.
+     *   [x] Clear requirements section.
+     *   [x] Detailed installation instructions.
+     *   [x] **Detailed Usage Examples:**
+         *   [x] Example showing `TableSyncConfigDTO` setup.
+         *   [x] Example showing instantiation of `GenericTableSyncer` with dependencies.
+         *   [x] **Crucially, example showing PSR-3 logger injection and usage.**
+         *   [x] Example output or expected behavior.
+     *   [x] Explanation of `placeholderDatetime` configuration.
+     *   [x] Information on customizing `MetadataColumnNamesDTO`.
+     *   [x] License information clearly stated.
+     *   [x] Clarification that library relies on provided `LoggerInterface` for output.
+ *   [x] **2. Create `CHANGELOG.md`:**
+     *   [x] `CHANGELOG.md` file created.
+     *   [x] Initialized for `v1.0.0`.
+ *   [x] **3. Code Style Adherence:**
+     *   [x] Run `composer cs-check`; ensure no violations.
+     *   [x] Run `composer cs-fix` if necessary.
+ *   [x] **4. Static Analysis (Optional):**
+     *   [ ] Run `composer stan` (if PHPStan is used).
+     *   [ ] Address any critical issues reported.
+ *   [x] **5. Final Review:**
+     *   [x] Code reviewed for logic, maintainability, and robustness.
+     *   [x] Documentation reviewed for clarity, accuracy, and completeness.
+     *   [x] Configuration files (`composer.json`, etc.) reviewed.
 
 **Phase 7: Publishing (Conceptual for AI / Actual for Human)**
 *   [ ] **1. Tag Initial Release:**

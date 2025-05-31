@@ -59,11 +59,13 @@ class TableSyncConfigDTO
         }
 
         // Validate primary keys, hash columns, and datetime columns exist in dataColumnMapping
-        foreach (array_merge(
-            $this->primaryKeyColumnMap,
-            $this->columnsForContentHash,
-            $this->nonNullableDatetimeSourceColumns
-        ) as $column) {
+        foreach (
+            array_merge(
+                $this->primaryKeyColumnMap,
+                $this->columnsForContentHash,
+                $this->nonNullableDatetimeSourceColumns
+            ) as $column
+        ) {
             if (!isset($this->dataColumnMapping[$column])) {
                 throw new \InvalidArgumentException("Column '$column' must exist in data column mapping.");
             }

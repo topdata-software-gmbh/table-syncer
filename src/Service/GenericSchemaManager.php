@@ -2,19 +2,19 @@
 
 namespace TopdataSoftwareGmbh\TableSyncer\Service;
 
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\ParameterType;
+use Doctrine\DBAL\Schema\Column;
+use Doctrine\DBAL\Schema\Table;
+use Doctrine\DBAL\Types\Type;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
-use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\Types\Type;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
-use Doctrine\DBAL\Schema\Table;
-use TopdataSoftwareGmbh\TableSyncer\Exception\TableSyncerException;
-use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException;
 
 class GenericSchemaManager
 {
     private readonly LoggerInterface $logger;
-    private ?Table $sourceTableDetailsCache = null;
+    private ?array $sourceTableDetailsCache = null;
     private ?string $cachedSourceTableName = null;
 
     public function __construct(?LoggerInterface $logger = null)
@@ -23,7 +23,7 @@ class GenericSchemaManager
     }
 
     /**
-     * Ensures the live table exists and is properly structured.
+     * Ensures the live table exists and has the correct schema.
      *
      * @param TableSyncConfigDTO $config
      * @return void
@@ -36,7 +36,7 @@ class GenericSchemaManager
     }
 
     /**
-     * Prepares the temporary table for data loading.
+     * Prepares the temp table for synchronization.
      *
      * @param TableSyncConfigDTO $config
      * @return void
@@ -77,7 +77,7 @@ class GenericSchemaManager
     }
 
     /**
-     * Creates a table with the specified columns and indexes.
+     * Creates a table with the specified schema.
      *
      * @param Connection $connection
      * @param string $tableName
@@ -85,7 +85,7 @@ class GenericSchemaManager
      * @param array $indexes
      * @return void
      */
-    private function _createTable(Connection $connection, string $tableName, array $columns, array $indexes = []): void
+    private function createTable(Connection $connection, string $tableName, array $columns, array $indexes = []): void
     {
         $this->logger->debug('Creating table', ['table' => $tableName]);
 
@@ -93,7 +93,7 @@ class GenericSchemaManager
     }
 
     /**
-     * Gets the source column types from the database.
+     * Gets the column types from the source table.
      *
      * @param TableSyncConfigDTO $config
      * @return array
@@ -107,7 +107,7 @@ class GenericSchemaManager
     }
 
     /**
-     * Converts a DBAL Type object to a type name string.
+     * Gets the DBAL type name from a Type object.
      *
      * @param Type $type
      * @return string
@@ -126,14 +126,18 @@ class GenericSchemaManager
      * @param int|null $numericScale
      * @return string
      */
-    public function mapInformationSchemaType(string $infoSchemaType, ?int $charMaxLength, ?int $numericPrecision, ?int $numericScale): string
-    {
+    public function mapInformationSchemaType(
+        string $infoSchemaType,
+        ?int $charMaxLength,
+        ?int $numericPrecision,
+        ?int $numericScale
+    ): string {
         // Implementation goes here
         return '';
     }
 
     /**
-     * Drops the temporary table.
+     * Drops the temp table.
      *
      * @param TableSyncConfigDTO $config
      * @return void

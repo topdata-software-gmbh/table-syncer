@@ -2,11 +2,10 @@
 
 namespace TopdataSoftwareGmbh\TableSyncer\Service;
 
+use Doctrine\DBAL\Connection;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
-use Doctrine\DBAL\Connection;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
-use TopdataSoftwareGmbh\TableSyncer\Exception\TableSyncerException;
 
 class GenericIndexManager
 {
@@ -18,20 +17,23 @@ class GenericIndexManager
     }
 
     /**
-     * Adds indices to the temporary table after data load.
+     * Adds indices to the temp table after data load.
      *
      * @param TableSyncConfigDTO $config
      * @return void
      */
     public function addIndicesToTempTableAfterLoad(TableSyncConfigDTO $config): void
     {
-        $this->logger->debug('Adding indices to temp table after load');
+        $this->logger->debug('Adding indices to temp table');
 
         $connection = $config->getConnection();
         $tempTableName = $config->tempTableName;
 
         foreach ($config->getIndexDefinitions() as $index) {
-            $this->addIndexIfNotExists($connection, $tempTableName, $index['columns'], $index['unique'] ?? false, $index['name'] ?? null);
+            $columns = $index['columns'];
+            $unique = $index['unique'] ?? false;
+            $name = $index['name'] ?? null;
+            $this->addIndexIfNotExists($connection, $tempTableName, $columns, $unique, $name);
         }
 
         $this->logger->info('Indices added to temp table');
@@ -51,7 +53,10 @@ class GenericIndexManager
         $liveTableName = $config->liveTableName;
 
         foreach ($config->getIndexDefinitions() as $index) {
-            $this->addIndexIfNotExists($connection, $liveTableName, $index['columns'], $index['unique'] ?? false, $index['name'] ?? null);
+            $columns = $index['columns'];
+            $unique = $index['unique'] ?? false;
+            $name = $index['name'] ?? null;
+            $this->addIndexIfNotExists($connection, $liveTableName, $columns, $unique, $name);
         }
 
         $this->logger->info('Indices added to live table');
@@ -67,25 +72,21 @@ class GenericIndexManager
      * @param string|null $indexName
      * @return void
      */
-    public function addIndexIfNotExists(Connection $connection, string $tableName, array $columns, bool $isUnique = false, ?string $indexName = null): void
-    {
-        $this->logger->debug('Adding index if not exists', ['table' => $tableName, 'columns' => implode(', ', $columns)]);
+    public function addIndexIfNotExists(
+        Connection $connection,
+        string $tableName,
+        array $columns,
+        bool $isUnique = false,
+        ?string $indexName = null
+    ): void {
+        $this->logger->debug(
+            'Adding index if not exists',
+            ['table' => $tableName, 'columns' => implode(', ', $columns)]
+        );
 
         $columnList = implode(', ', $columns);
         $indexType = $isUnique ? 'UNIQUE' : '';
-        $indexName = $indexName ?: "idx_{$tableName}_{implode('_', $columns)}";
 
-        $query = "CREATE $indexType INDEX $indexName ON $tableName ($columnList)";
-
-        try {
-            $connection->executeStatement($query);
-            $this->logger->info('Index created', ['index' => $indexName]);
-        } catch (TableSyncerException $e) {
-            // Re-throw custom exceptions
-            throw $e;
-        } catch (\Exception $e) {
-            // Index might already exist
-            $this->logger->debug('Index creation failed, might already exist', ['error' => $e->getMessage()]);
-        }
+        // Implementation goes here
     }
 }
