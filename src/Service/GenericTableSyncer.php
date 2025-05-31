@@ -8,6 +8,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TopdataSoftwareGmbh\TableSyncer\DTO\SyncReportDTO;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
+
 // use TopdataSoftwareGmbh\TableSyncer\Util\DbalHelper; // Not used in the provided methods, can be removed if not used elsewhere
 use TopdataSoftwareGmbh\TableSyncer\Exception\TableSyncerException;
 
@@ -20,10 +21,11 @@ class GenericTableSyncer
 
     public function __construct(
         GenericSchemaManager $schemaManager,
-        GenericIndexManager $indexManager,
-        GenericDataHasher $dataHasher,
-        ?LoggerInterface $logger = null
-    ) {
+        GenericIndexManager  $indexManager,
+        GenericDataHasher    $dataHasher,
+        ?LoggerInterface     $logger = null
+    )
+    {
         $this->schemaManager = $schemaManager;
         $this->indexManager = $indexManager;
         $this->dataHasher = $dataHasher;
@@ -50,8 +52,8 @@ class GenericTableSyncer
         try {
             $report = new SyncReportDTO();
             $this->logger->info('Starting sync process', [
-                'source' => $config->sourceTableName,
-                'target' => $config->targetLiveTableName,
+                'source'        => $config->sourceTableName,
+                'target'        => $config->targetLiveTableName,
                 'batchRevision' => $currentBatchRevisionId
             ]);
 
@@ -83,9 +85,9 @@ class GenericTableSyncer
                 $targetConn->commit();
             }
             $this->logger->info('Sync completed successfully', [
-                'inserted' => $report->insertedCount,
-                'updated' => $report->updatedCount,
-                'deleted' => $report->deletedCount,
+                'inserted'      => $report->insertedCount,
+                'updated'       => $report->updatedCount,
+                'deleted'       => $report->deletedCount,
                 'initialInsert' => $report->initialInsertCount
             ]);
             return $report;
@@ -97,7 +99,7 @@ class GenericTableSyncer
                 } catch (\Throwable $rollbackException) {
                     $this->logger->error('Failed to roll back transaction: ' . $rollbackException->getMessage(), [
                         'original_exception_message' => $e->getMessage(),
-                        'rollback_exception' => $rollbackException
+                        'rollback_exception'         => $rollbackException
                     ]);
                 }
             } else {
@@ -106,8 +108,8 @@ class GenericTableSyncer
 
             $this->logger->error('Sync failed: ' . $e->getMessage(), [
                 'exception' => $e,
-                'source' => $config->sourceTableName,
-                'target' => $config->targetLiveTableName
+                'source'    => $config->sourceTableName,
+                'target'    => $config->targetLiveTableName
             ]);
             throw new TableSyncerException('Sync failed: ' . $e->getMessage(), 0, $e);
         }
@@ -124,7 +126,7 @@ class GenericTableSyncer
     {
         $this->logger->debug('Loading data from source to temp table', [
             'sourceTable' => $config->sourceTableName,
-            'tempTable' => $config->targetTempTableName
+            'tempTable'   => $config->targetTempTableName
         ]);
 
         $sourceConn = $config->sourceConnection;
@@ -176,9 +178,9 @@ class GenericTableSyncer
         $insertStmt = $targetConn->prepare($insertSql);
 
         $this->logger->debug('Prepared insert statement for temp table', [
-            'sql' => $insertSql,
+            'sql'                => $insertSql,
             'targetColumnsCount' => count($targetInsertDataColumns),
-            'placeholdersCount' => count($placeholders)
+            'placeholdersCount'  => count($placeholders)
         ]);
 
         $rowCount = 0;
@@ -200,8 +202,8 @@ class GenericTableSyncer
 
                 if (!array_key_exists($sourceColName, $processedRow)) {
                     $this->logger->error("Value missing for source column '{$sourceColName}' (maps to target '{$targetColName}') in fetched row. This indicates an issue with the source SELECT query or data consistency.", [
-                        'source_col' => $sourceColName,
-                        'target_col' => $targetColName,
+                        'source_col'         => $sourceColName,
+                        'target_col'         => $targetColName,
                         'available_row_keys' => array_keys($processedRow)
                     ]);
                     // Decide how to handle: insert NULL, or error out.
@@ -225,9 +227,9 @@ class GenericTableSyncer
 
             if (count($orderedParamValues) !== count($placeholders)) {
                 $this->logger->error("CRITICAL: Parameter count mismatch before executeStatement for temp table!", [
-                    'sql' => $insertSql,
-                    'param_count' => count($orderedParamValues),
-                    'placeholder_count' => count($placeholders),
+                    'sql'                        => $insertSql,
+                    'param_count'                => count($orderedParamValues),
+                    'placeholder_count'          => count($placeholders),
                     'target_insert_cols_for_sql' => $targetInsertDataColumns,
                 ]);
                 // This is a definitive programming error if reached.
@@ -241,9 +243,9 @@ class GenericTableSyncer
                 $rowCount++;
             } catch (\Exception $e) {
                 $this->logger->error('Failed to execute insert statement for temp table: ' . $e->getMessage(), [
-                    'sql' => $insertSql,
-                    'params_count' => count($orderedParamValues),
-                    'types_count' => count($orderedParamTypes),
+                    'sql'             => $insertSql,
+                    'params_count'    => count($orderedParamValues),
+                    'types_count'     => count($orderedParamTypes),
                     // 'params_values' => $orderedParamValues, // Log actual values only if absolutely necessary for debugging and aware of sensitivity
                     'exception_class' => get_class($e),
                     'exception_trace' => $e->getTraceAsString() // Can be verbose
@@ -274,8 +276,8 @@ class GenericTableSyncer
     {
         $this->logger->debug('Synchronizing temp table to live table', [
             'batchRevisionId' => $currentBatchRevisionId,
-            'liveTable' => $config->targetLiveTableName,
-            'tempTable' => $config->targetTempTableName
+            'liveTable'       => $config->targetLiveTableName,
+            'tempTable'       => $config->targetTempTableName
         ]);
 
         $targetConn = $config->targetConnection;
