@@ -4,68 +4,68 @@
 
 ## Phase 1: Create New Service Class Files
 
-*   [ ] **`src/Service/SourceToTempLoader.php`:**
-    *   [ ] Create file `src/Service/SourceToTempLoader.php`.
-    *   [ ] Define class `SourceToTempLoader` in `TopdataSoftwareGmbh\TableSyncer\Service` namespace.
-    *   [ ] Add basic constructor (accepting `GenericSchemaManager`, `?LoggerInterface`).
-    *   [ ] Add `public function load(TableSyncConfigDTO $config): void` method stub.
-*   [ ] **`src/Service/TempToLiveSynchronizer.php`:**
-    *   [ ] Create file `src/Service/TempToLiveSynchronizer.php`.
-    *   [ ] Define class `TempToLiveSynchronizer` in `TopdataSoftwareGmbh\TableSyncer\Service` namespace.
-    *   [ ] Add basic constructor (accepting `?LoggerInterface`).
-    *   [ ] Add `public function synchronize(TableSyncConfigDTO $config, int $currentBatchRevisionId, SyncReportDTO $report): void` method stub.
+*   [x] **`src/Service/SourceToTempLoader.php`:**
+    *   [x] Create file `src/Service/SourceToTempLoader.php`.
+    *   [x] Define class `SourceToTempLoader` in `TopdataSoftwareGmbh\TableSyncer\Service` namespace.
+    *   [x] Add basic constructor (accepting `GenericSchemaManager`, `?LoggerInterface`).
+    *   [x] Add `public function load(TableSyncConfigDTO $config): void` method stub.
+*   [x] **`src/Service/TempToLiveSynchronizer.php`:**
+    *   [x] Create file `src/Service/TempToLiveSynchronizer.php`.
+    *   [x] Define class `TempToLiveSynchronizer` in `TopdataSoftwareGmbh\TableSyncer\Service` namespace.
+    *   [x] Add basic constructor (accepting `?LoggerInterface`).
+    *   [x] Add `public function synchronize(TableSyncConfigDTO $config, int $currentBatchRevisionId, SyncReportDTO $report): void` method stub.
 
 ## Phase 2: Implement `SourceToTempLoader`
 
-*   [ ] **Constructor Implementation:**
-    *   [ ] Implement constructor to accept `GenericSchemaManager $schemaManager` and `?LoggerInterface $logger = null`.
-    *   [ ] Store dependencies as `private readonly` properties (`$schemaManager`, `$logger`).
-    *   [ ] Initialize `$this->logger` with `$logger ?? new NullLogger()`.
-*   [ ] **Move `loadDataFromSourceToTemp` Logic to `SourceToTempLoader::load()`:**
-    *   [ ] Copy method body from `GenericTableSyncer::loadDataFromSourceToTemp` to `SourceToTempLoader::load`.
-    *   [ ] Ensure correct use of `$this->schemaManager` and `$this->logger`.
-*   [ ] **Move Helper Methods to `SourceToTempLoader`:**
-    *   [ ] Copy `ensureDatetimeValues()` from `GenericTableSyncer` to `SourceToTempLoader`.
-        *   [ ] Set visibility to `protected` (or `private`).
-        *   [ ] Verify internal logger usage.
-    *   [ ] Copy `isDateEffectivelyZeroOrInvalid()` from `GenericTableSyncer` to `SourceToTempLoader`.
-        *   [ ] Set visibility to `protected` (or `private`).
-    *   [ ] Copy `isDateEmptyOrInvalid()` from `GenericTableSyncer` to `SourceToTempLoader`.
-        *   [ ] Set visibility to `protected` (or `private`).
-    *   [ ] Copy `getDbalParamType()` from `GenericTableSyncer` to `SourceToTempLoader`.
-        *   [ ] Set visibility to `protected` (or `private`).
-    *   [ ] Copy `dbalTypeToParameterType()` from `GenericTableSyncer` to `SourceToTempLoader`.
-        *   [ ] Set visibility to `protected` (or `private`).
-*   [ ] **Update PHPDoc for `SourceToTempLoader` and its methods.**
+*   [x] **Constructor Implementation:**
+    *   [x] Implement constructor to accept `GenericSchemaManager $schemaManager` and `?LoggerInterface $logger = null`.
+    *   [x] Store dependencies as `private readonly` properties (`$schemaManager`, `$logger`).
+    *   [x] Initialize `$this->logger` with `$logger ?? new NullLogger()`.
+*   [x] **Move `loadDataFromSourceToTemp` Logic to `SourceToTempLoader::load()`:**
+    *   [x] Copy method body from `GenericTableSyncer::loadDataFromSourceToTemp` to `SourceToTempLoader::load`.
+    *   [x] Ensure correct use of `$this->schemaManager` and `$this->logger`.
+*   [x] **Move Helper Methods to `SourceToTempLoader`:**
+    *   [x] Copy `ensureDatetimeValues()` from `GenericTableSyncer` to `SourceToTempLoader`.
+        *   [x] Set visibility to `protected`.
+        *   [x] Verify internal logger usage.
+    *   [x] Copy `isDateEffectivelyZeroOrInvalid()` from `GenericTableSyncer` to `SourceToTempLoader`.
+        *   [x] Set visibility to `protected`.
+    *   [x] Copy `isDateEmptyOrInvalid()` from `GenericTableSyncer` to `SourceToTempLoader`.
+        *   [x] Set visibility to `protected`.
+    *   [x] Copy `getDbalParamType()` from `GenericTableSyncer` to `SourceToTempLoader`.
+        *   [x] Set visibility to `protected`.
+    *   [x] Copy `dbalTypeToParameterType()` from `GenericTableSyncer` to `SourceToTempLoader`.
+        *   [x] Set visibility to `protected`.
+*   [x] **Update PHPDoc for `SourceToTempLoader` and its methods.**
 
 ## Phase 3: Implement `TempToLiveSynchronizer`
 
-*   [ ] **Constructor Implementation:**
-    *   [ ] Implement constructor to accept `?LoggerInterface $logger = null`.
-    *   [ ] Store dependency as `private readonly LoggerInterface $logger`.
-    *   [ ] Initialize `$this->logger` with `$logger ?? new NullLogger()`.
-*   [ ] **Move `synchronizeTempToLive` Logic to `TempToLiveSynchronizer::synchronize()`:**
-    *   [ ] Copy method body from `GenericTableSyncer::synchronizeTempToLive` to `TempToLiveSynchronizer::synchronize`.
-    *   [ ] Ensure correct use of `$this->logger`.
-*   [ ] **Update PHPDoc for `TempToLiveSynchronizer` and its methods.**
+*   [x] **Constructor Implementation:**
+    *   [x] Implement constructor to accept `?LoggerInterface $logger = null`.
+    *   [x] Store dependency as `private readonly LoggerInterface $logger`.
+    *   [x] Initialize `$this->logger` with `$logger ?? new NullLogger()`.
+*   [x] **Move `synchronizeTempToLive` Logic to `TempToLiveSynchronizer::synchronize()`:**
+    *   [x] Copy method body from `GenericTableSyncer::synchronizeTempToLive` to `TempToLiveSynchronizer::synchronize`.
+    *   [x] Ensure correct use of `$this->logger`.
+*   [x] **Update PHPDoc for `TempToLiveSynchronizer` and its methods.**
 
 ## Phase 4: Refactor `GenericTableSyncer`
 
-*   [ ] **Update Constructor:**
-    *   [ ] Modify constructor signature to include `SourceToTempLoader $sourceToTempLoader` and `TempToLiveSynchronizer $tempToLiveSynchronizer`.
-    *   [ ] Store new dependencies as `private readonly` properties.
-*   [ ] **Update `sync()` Method:**
-    *   [ ] Replace internal call to `loadDataFromSourceToTemp()` with `$this->sourceToTempLoader->load($config);`.
-    *   [ ] Replace internal call to `synchronizeTempToLive()` with `$this->tempToLiveSynchronizer->synchronize($config, $currentBatchRevisionId, $report);`.
-*   [ ] **Remove Old Methods from `GenericTableSyncer`:**
-    *   [ ] Delete `loadDataFromSourceToTemp()`.
-    *   [ ] Delete `synchronizeTempToLive()`.
-    *   [ ] Delete `ensureDatetimeValues()`.
-    *   [ ] Delete `isDateEffectivelyZeroOrInvalid()`.
-    *   [ ] Delete `isDateEmptyOrInvalid()`.
-    *   [ ] Delete `getDbalParamType()`.
-    *   [ ] Delete `dbalTypeToParameterType()`.
-*   [ ] **Update PHPDoc for `GenericTableSyncer` constructor and `sync()` method.**
+*   [x] **Update Constructor:**
+    *   [x] Modify constructor signature to include `SourceToTempLoader $sourceToTempLoader` and `TempToLiveSynchronizer $tempToLiveSynchronizer`.
+    *   [x] Store new dependencies as `private readonly` properties.
+*   [x] **Update `sync()` Method:**
+    *   [x] Replace internal call to `loadDataFromSourceToTemp()` with `$this->sourceToTempLoader->load($config);`.
+    *   [x] Replace internal call to `synchronizeTempToLive()` with `$this->tempToLiveSynchronizer->synchronize($config, $currentBatchRevisionId, $report);`.
+*   [x] **Remove Old Methods from `GenericTableSyncer`:**
+    *   [x] Delete `loadDataFromSourceToTemp()`.
+    *   [x] Delete `synchronizeTempToLive()`.
+    *   [x] Delete `ensureDatetimeValues()`.
+    *   [x] Delete `isDateEffectivelyZeroOrInvalid()`.
+    *   [x] Delete `isDateEmptyOrInvalid()`.
+    *   [x] Delete `getDbalParamType()`.
+    *   [x] Delete `dbalTypeToParameterType()`.
+*   [x] **Update PHPDoc for `GenericTableSyncer` constructor and `sync()` method.**
 
 ## Phase 5: Update Unit Tests
 
