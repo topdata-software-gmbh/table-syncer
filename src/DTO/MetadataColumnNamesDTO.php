@@ -5,41 +5,27 @@ namespace TopdataSoftwareGmbh\TableSyncer\DTO;
 use DateTimeInterface;
 
 /**
- * Class MetadataColumnNamesDTO
  * Represents the default column names for metadata in the table sync process.
  */
-class MetadataColumnNamesDTO extends \App\DTO\TableSync\MetadataColumnNamesDTO
+class MetadataColumnNamesDTO
 {
-    public string $id;
-    public string $contentHash;
-    public string $revisionId;
-    public string $createdAt;
-    public string $updatedAt;
-    public string $deletedAt;
+    public string $id = '_syncer_id'; // PK for the target table, managed by syncer
+    public string $contentHash = '_syncer_content_hash';
+    public string $createdAt = '_syncer_created_at'; // When syncer inserted this row
+    public string $updatedAt = '_syncer_updated_at'; // When syncer last updated this row
+    public string $batchRevision = '_syncer_revision_id'; // Or _syncer_revision_id if you prefer
 
-    /**
-     * Constructor with optional parameters to override default property values.
-     *
-     * @param string $id
-     * @param string $contentHash
-     * @param string $revisionId
-     * @param string $createdAt
-     * @param string $updatedAt
-     * @param string $deletedAt
-     */
     public function __construct(
-        string $id = 'id',
-        string $contentHash = 'content_hash',
-        string $revisionId = 'revision_id',
-        string $createdAt = 'created_at',
-        string $updatedAt = 'updated_at',
-        string $deletedAt = 'deleted_at'
+        string $id = '_syncer_id',
+        string $contentHash = '_syncer_content_hash',
+        string $createdAt = '_syncer_created_at',
+        string $updatedAt = '_syncer_updated_at',
+        string $batchRevision = '_syncer_revision_id' // Consistent naming
     ) {
         $this->id = $id;
         $this->contentHash = $contentHash;
-        $this->revisionId = $revisionId;
         $this->createdAt = $createdAt;
         $this->updatedAt = $updatedAt;
-        $this->deletedAt = $deletedAt;
+        $this->batchRevision = $batchRevision;
     }
 }
