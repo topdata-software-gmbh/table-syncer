@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<ruleset name="PSR-12"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/squizlabs/PHP_CodeSniffer/master/phpcs.xsd">
+
+    <!-- Set the PHP version to check against -->
+    <arg name="phpVersion" value="8.0"/>
+
+    <!-- Set the tab width -->
+    <arg name="tabWidth" value="4"/>
+
+    <!-- Set the encoding -->
+    <arg name="encoding" value="UTF-8"/>
+
+    <!-- Set the line ending -->
+    <arg name="eol" value="LF"/>
+
+    <!-- Set the file extensions to check -->
+    <arg name="extensions" value="php"/>
+
+    <!-- Set the files to check -->
+    <arg name="files" value="src,tests"/>
+
+    <!-- Set the ruleset -->
+    <rule ref="PSR12"/>
+</ruleset>
