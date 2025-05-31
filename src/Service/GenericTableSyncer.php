@@ -83,12 +83,28 @@ class GenericTableSyncer
             ]);
             return $report;
         } catch (\Throwable $e) {
-            $targetConn->rollBack();
+            // Check if a transaction is actually active before trying to roll back
+            if ($targetConn->isTransactionActive()) {
+                try {
+                    $targetConn->rollBack();
+                    $this->logger->warning('Transaction rolled back due to an error during sync.', ['exception_message' => $e->getMessage()]);
+                } catch (\Throwable $rollbackException) {
+                    $this->logger->error('Failed to roll back transaction: ' . $rollbackException->getMessage(), [
+                        'original_exception_message' => $e->getMessage(),
+                        'rollback_exception' => $rollbackException
+                    ]);
+                    // Optionally, rethrow the original exception or a new one wrapping both
+                }
+            } else {
+                $this->logger->info('No active transaction to roll back. The error might have occurred after an implicit commit caused by DDL.', ['exception_message' => $e->getMessage()]);
+            }
+
             $this->logger->error('Sync failed: ' . $e->getMessage(), [
                 'exception' => $e,
                 'source' => $config->sourceTableName,
                 'target' => $config->targetLiveTableName
             ]);
+            // Rethrow the original exception that caused the sync to fail
             throw new TableSyncerException('Sync failed: ' . $e->getMessage(), 0, $e);
         }
     }
