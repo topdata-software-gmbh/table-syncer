@@ -61,8 +61,11 @@ class GenericDataHasher
         // Execute the query and get number of affected rows
         $result = $targetConn->executeStatement($hashQuery);
 
-        $this->logger->info('Content hashes added to temp table', ['affected_rows' => $result]);
+        // Ensure we return an integer
+        $affectedRows = is_numeric($result) ? (int)$result : 0;
+        
+        $this->logger->info('Content hashes added to temp table', ['affected_rows' => $affectedRows]);
 
-        return $result;
+        return $affectedRows;
     }
 }

@@ -103,6 +103,8 @@ class TableSyncConfigDTO
 
     /**
      * Gets source primary key column names.
+     *
+     * @return array<string> List of source primary key column names
      */
     public function getSourcePrimaryKeyColumns(): array
     {
@@ -111,6 +113,8 @@ class TableSyncConfigDTO
 
     /**
      * Gets target primary key column names.
+     *
+     * @return array<string> List of target primary key column names
      */
     public function getTargetPrimaryKeyColumns(): array
     {
@@ -119,6 +123,8 @@ class TableSyncConfigDTO
 
     /**
      * Gets source data column names.
+     *
+     * @return array<string> List of source data column names
      */
     public function getSourceDataColumns(): array
     {
@@ -127,6 +133,8 @@ class TableSyncConfigDTO
 
     /**
      * Gets target data column names.
+     *
+     * @return array<string> List of target data column names
      */
     public function getTargetDataColumns(): array
     {
@@ -149,7 +157,9 @@ class TableSyncConfigDTO
     }
 
     /**
-     * Gets target column names for content hash generation.
+     * Gets columns to use for content hash calculation.
+     *
+     * @return array<string> List of target column names to use for content hash calculation
      */
     public function getTargetColumnsForContentHash(): array
     {
@@ -161,7 +171,9 @@ class TableSyncConfigDTO
     }
 
     /**
-     * Gets target column names for non-nullable datetime columns.
+     * Gets non-nullable datetime columns in the target table.
+     *
+     * @return array<string> List of non-nullable datetime column names in the target table
      */
     public function getTargetNonNullableDatetimeColumns(): array
     {
@@ -173,8 +185,9 @@ class TableSyncConfigDTO
     }
 
     /**
-     * Gets all columns that should exist in the temp table.
-     * This includes target primary keys, data columns, and specific metadata.
+     * Gets temp table columns.
+     * 
+     * @return array<string> List of temp table column names
      */
     public function getTempTableColumns(): array
     {
@@ -203,5 +216,30 @@ class TableSyncConfigDTO
     public function getDataColumnMapping(): array
     {
         return $this->dataColumnMapping;
+    }
+    
+    /**
+     * Gets the source column name that maps to a given target column name.
+     * Useful for reverse mapping during schema operations.
+     *
+     * @param string $targetColumnName The target column name
+     * @return string The corresponding source column name
+     * @throws \InvalidArgumentException If the target column is not found in the mapping
+     */
+    public function getMappedSourceColumnName(string $targetColumnName): string
+    {
+        // Search in primary key mapping first
+        $flipPkMap = array_flip($this->primaryKeyColumnMap);
+        if (isset($flipPkMap[$targetColumnName])) {
+            return $flipPkMap[$targetColumnName];
+        }
+        
+        // Then search in data mapping
+        $flipDataMap = array_flip($this->dataColumnMapping);
+        if (isset($flipDataMap[$targetColumnName])) {
+            return $flipDataMap[$targetColumnName];
+        }
+        
+        throw new \InvalidArgumentException("Target column '{$targetColumnName}' not found in column mappings.");
     }
 }

@@ -14,6 +14,9 @@ use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
 class GenericSchemaManager
 {
     private readonly LoggerInterface $logger;
+    /**
+     * @var array<string, string>|null
+     */
     private ?array $sourceTableDetailsCache = null;
     private ?string $cachedSourceTableName = null;
 
@@ -154,12 +157,12 @@ class GenericSchemaManager
     }
 
     /**
-     * Gets metadata columns specific to the live table.
+     * Gets metadata columns for the live table.
      *
      * @param TableSyncConfigDTO $config
-     * @return array
+     * @return array<string, array<string, mixed>> Column name to definition mapping
      */
-    public function getLiveTableSpecificMetadataColumns(TableSyncConfigDTO $config): array
+    private function getLiveTableSpecificMetadataColumns(TableSyncConfigDTO $config): array
     {
         $this->logger->debug('Getting live table specific metadata columns');
 
@@ -217,12 +220,12 @@ class GenericSchemaManager
     }
 
     /**
-     * Gets metadata columns specific to the temp table.
+     * Gets metadata columns for the temp table.
      *
      * @param TableSyncConfigDTO $config
-     * @return array
+     * @return array<string, array<string, mixed>> Column name to definition mapping
      */
-    public function getTempTableSpecificMetadataColumns(TableSyncConfigDTO $config): array
+    private function getTempTableSpecificMetadataColumns(TableSyncConfigDTO $config): array
     {
         $this->logger->debug('Getting temp table specific metadata columns');
 
@@ -252,12 +255,12 @@ class GenericSchemaManager
     }
 
     /**
-     * Creates a table with the specified schema.
+     * Creates a table with the given columns and indexes.
      *
      * @param Connection $connection
      * @param string $tableName
-     * @param array $columns
-     * @param array $indexes
+     * @param array<string, array<string, mixed>> $columns
+     * @param array<string, array<string, mixed>> $indexes
      * @return void
      */
     private function createTable(Connection $connection, string $tableName, array $columns, array $indexes = []): void
@@ -283,15 +286,9 @@ class GenericSchemaManager
                 $options['autoincrement'] = true;
             }
 
-            // Create column
-            $type = Type::getType($columnDef['type']);
-            $column = new Column($columnName, $type, $options);
-
-            // Set nullable
-            $column->setNotnull($columnDef['notnull'] ?? false);
-
-            // Add to table
-            $table->addColumn($column);
+            // Add column directly with name, type and options
+            $options['notnull'] = $columnDef['notnull'] ?? false;
+            $table->addColumn($columnName, $columnDef['type'], $options);
 
             // Track primary keys
             if (isset($columnDef['primary']) && $columnDef['primary']) {
@@ -306,10 +303,27 @@ class GenericSchemaManager
 
         // Add other indexes
         foreach ($indexes as $indexName => $indexDef) {
-            if ($indexDef['unique'] ?? false) {
-                $table->addUniqueIndex($indexDef['columns'], $indexName);
+            // Ensure columns is an array of strings
+            $columns = [];
+            if (isset($indexDef['columns']) && is_array($indexDef['columns'])) {
+                foreach ($indexDef['columns'] as $col) {
+                    if (is_string($col)) {
+                        $columns[] = $col;
+                    }
+                }
+            }
+            
+            if (!empty($columns)) {
+                if ($indexDef['unique'] ?? false) {
+                    $table->addUniqueIndex($columns, $indexName);
+                } else {
+                    $table->addIndex($columns, $indexName);
+                }
             } else {
-                $table->addIndex($indexDef['columns'], $indexName);
+                $this->logger->warning('Skipping index with invalid columns', [
+                    'indexName' => $indexName,
+                    'columns' => $indexDef['columns'] ?? null
+                ]);
             }
         }
 
@@ -319,10 +333,10 @@ class GenericSchemaManager
     }
 
     /**
-     * Gets the column types from the source table.
+     * Gets the source column DBAL types.
      *
      * @param TableSyncConfigDTO $config
-     * @return array
+     * @return array<string, string> Column name to DBAL type name mapping
      */
     public function getSourceColumnTypes(TableSyncConfigDTO $config): array
     {
@@ -364,7 +378,16 @@ class GenericSchemaManager
      */
     public function getDbalTypeNameFromTypeObject(Type $type): string
     {
-        return $type->getName();
+        // Handle different DBAL versions
+        if (method_exists($type, 'getName')) {
+            return $type->getName();
+        }
+        
+        // For newer DBAL versions
+        $className = get_class($type);
+        $parts = explode('\\', $className);
+        $typeName = end($parts);
+        return strtolower(str_replace('Type', '', $typeName));
     }
 
     /**

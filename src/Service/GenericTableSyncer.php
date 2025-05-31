@@ -169,8 +169,20 @@ class GenericTableSyncer
             }
 
             // Execute insert with bound parameters
-            $insertStmt->executeStatement($paramValues, $paramTypes);
-            $rowCount++;
+            // Try to safely handle different DBAL versions
+            try {
+                // First attempt with newer DBAL API
+                if (method_exists($insertStmt, 'executeStatement')) {
+                    $insertStmt->executeStatement($paramValues);
+                } else {
+                    // Fallback to older DBAL API
+                    $insertStmt->execute($paramValues);
+                }
+                $rowCount++;
+            } catch (\Exception $e) {
+                $this->logger->error('Failed to execute statement: ' . $e->getMessage());
+                throw $e;
+            }
 
             // Log progress periodically
             if ($rowCount % 1000 === 0) {
@@ -206,8 +218,10 @@ class GenericTableSyncer
 
         // --- A. Check if the live table is empty ---
         $count = $targetConn->fetchOne("SELECT COUNT(*) FROM {$liveTable}");
+        // Ensure $count is safely converted to integer
+        $countInt = is_numeric($count) ? (int)$count : 0;
 
-        if ((int)$count === 0) {
+        if ($countInt === 0) {
             // If live table is empty, do a direct insert of all rows from temp
             $this->logger->info('Live table is empty, doing initial import');
 
@@ -231,7 +245,8 @@ class GenericTableSyncer
                 . "FROM {$tempTable}";
 
             $this->logger->debug('Executing initial insert SQL', ['sql' => $sqlInitialInsert]);
-            $report->initialInsertCount = $targetConn->executeStatement($sqlInitialInsert, [$currentBatchRevisionId]);
+            $result = $targetConn->executeStatement($sqlInitialInsert, [$currentBatchRevisionId]);
+            $report->initialInsertCount = (int)$result;
             $report->addLogMessage("Initial import: {$report->initialInsertCount} rows inserted.");
             return;
         }
@@ -264,7 +279,8 @@ class GenericTableSyncer
             WHERE {$liveTable}.{$contentHashCol} <> {$tempTable}.{$contentHashCol}";
 
         $this->logger->debug('Executing update SQL', ['sql' => $sqlUpdate]);
-        $report->updatedCount = $targetConn->executeStatement($sqlUpdate, [$currentBatchRevisionId]);
+        $result = $targetConn->executeStatement($sqlUpdate, [$currentBatchRevisionId]);
+        $report->updatedCount = (int)$result;
         $report->addLogMessage("Rows updated due to hash mismatch: {$report->updatedCount}.");
 
         try {
@@ -279,7 +295,8 @@ class GenericTableSyncer
                 WHERE {$tempTable}.{$deletePkColForNullCheck} IS NULL";
 
             $this->logger->debug('Executing delete SQL', ['sql' => $sqlDelete]);
-            $report->deletedCount = $targetConn->executeStatement($sqlDelete);
+            $result = $targetConn->executeStatement($sqlDelete);
+            $report->deletedCount = (int)$result;
             $report->addLogMessage("Rows deleted from live (not in source/temp): {$report->deletedCount}.");
 
             // --- D. Handle Inserts ---
@@ -306,7 +323,8 @@ class GenericTableSyncer
                 WHERE {$liveTable}.{$insertPkColForNullCheck} IS NULL";
 
             $this->logger->debug('Executing insert SQL', ['sql' => $sqlInsert]);
-            $report->insertedCount = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId]);
+            $result = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId]);
+            $report->insertedCount = (int)$result;
             $report->addLogMessage("New rows inserted into live: {$report->insertedCount}.");
         } catch (\Throwable $e) {
             $this->logger->error("Error during temp to live synchronization: {$e->getMessage()}", ['exception' => $e]);
@@ -319,8 +337,8 @@ class GenericTableSyncer
      * Sets a special date (2222-02-22) for missing or invalid values.
      *
      * @param TableSyncConfigDTO $config
-     * @param array $row
-     * @return array
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
      */
     protected function ensureDatetimeValues(TableSyncConfigDTO $config, array $row): array
     {
@@ -366,27 +384,28 @@ class GenericTableSyncer
     protected function getDbalParamType(string $columnName, $value): int
     {
         if ($value === null) {
-            return ParameterType::NULL;
+            // Use integer constant instead of enum value
+            return 0; // ParameterType::NULL
         }
 
         if (is_int($value)) {
-            return ParameterType::INTEGER;
+            return 1; // ParameterType::INTEGER
         }
 
         if (is_bool($value)) {
-            return ParameterType::BOOLEAN;
+            return 5; // ParameterType::BOOLEAN
         }
 
         if (is_float($value)) {
-            return ParameterType::STRING; // No specific float type in DBAL ParameterType
+            return 2; // ParameterType::STRING - No specific float type in DBAL ParameterType
         }
 
         if ($value instanceof \DateTimeInterface) {
-            return ParameterType::STRING;
+            return 2; // ParameterType::STRING
         }
 
         // Default
-        return ParameterType::STRING;
+        return 2; // ParameterType::STRING
     }
 
     /**
@@ -401,18 +420,18 @@ class GenericTableSyncer
             case Types::INTEGER:
             case Types::BIGINT:
             case Types::SMALLINT:
-                return ParameterType::INTEGER;
+                return 1; // ParameterType::INTEGER
 
             case Types::BOOLEAN:
-                return ParameterType::BOOLEAN;
+                return 5; // ParameterType::BOOLEAN
 
             case Types::BLOB:
             case Types::BINARY:
-                return ParameterType::BINARY;
+                return 3; // ParameterType::BINARY
 
             // All other types (including dates, strings, decimals, etc.) use STRING parameter type
             default:
-                return ParameterType::STRING;
+                return 2; // ParameterType::STRING
         }
     }
 

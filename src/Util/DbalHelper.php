@@ -18,7 +18,18 @@ class DbalHelper
      */
     public static function getDatabasePlatformName(Connection $connection): string
     {
-        return $connection->getDatabasePlatform()->getName();
+        $platform = $connection->getDatabasePlatform();
+
+        return match (get_class($platform)) {
+            \Doctrine\DBAL\Platforms\MariaDB1010Platform::class,
+            \Doctrine\DBAL\Platforms\MySQLPlatform::class,
+            \Doctrine\DBAL\Platforms\MariaDbPlatform::class    => 'mysql', // Treat MariaDB as MySQL
+            \Doctrine\DBAL\Platforms\PostgreSQLPlatform::class => 'postgresql',
+            \Doctrine\DBAL\Platforms\SqlitePlatform::class     => 'sqlite',
+            \Doctrine\DBAL\Platforms\SQLServerPlatform::class  => 'sqlserver',
+            \Doctrine\DBAL\Platforms\OraclePlatform::class     => 'oracle',
+            default                                            => throw new \RuntimeException("Unknown DB platform: " . get_class($platform)),
+        };
     }
 
     /**
@@ -30,7 +41,7 @@ class DbalHelper
      */
     public static function isPlatform(Connection $connection, string $platformName): bool
     {
-        return $connection->getDatabasePlatform()->getName() === $platformName;
+        return self::getDatabasePlatformName($connection) === $platformName;
     }
 
     /**
