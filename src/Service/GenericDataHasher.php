@@ -63,7 +63,7 @@ class GenericDataHasher
 
         // Ensure we return an integer
         $affectedRows = is_numeric($result) ? (int)$result : 0;
-        
+
         $this->logger->info('Content hashes added to temp table', ['affected_rows' => $affectedRows]);
 
         return $affectedRows;

@@ -312,7 +312,7 @@ class GenericSchemaManager
                     }
                 }
             }
-            
+
             if (!empty($columns)) {
                 if ($indexDef['unique'] ?? false) {
                     $table->addUniqueIndex($columns, $indexName);
@@ -382,7 +382,7 @@ class GenericSchemaManager
         if (method_exists($type, 'getName')) {
             return $type->getName();
         }
-        
+
         // For newer DBAL versions
         $className = get_class($type);
         $parts = explode('\\', $className);

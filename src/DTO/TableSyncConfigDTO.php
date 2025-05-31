@@ -186,7 +186,7 @@ class TableSyncConfigDTO
 
     /**
      * Gets temp table columns.
-     * 
+     *
      * @return array<string> List of temp table column names
      */
     public function getTempTableColumns(): array
@@ -197,17 +197,17 @@ class TableSyncConfigDTO
             [$this->metadataColumns->contentHash, $this->metadataColumns->createdAt]
         ));
     }
-    
+
     /**
      * Gets the primary key column mapping (source to target).
-     * 
+     *
      * @return array<string, string> Key-value pairs of source to target column names
      */
     public function getPrimaryKeyColumnMap(): array
     {
         return $this->primaryKeyColumnMap;
     }
-    
+
     /**
      * Gets the data column mapping (source to target).
      *
@@ -217,7 +217,7 @@ class TableSyncConfigDTO
     {
         return $this->dataColumnMapping;
     }
-    
+
     /**
      * Gets the source column name that maps to a given target column name.
      * Useful for reverse mapping during schema operations.
@@ -233,13 +233,13 @@ class TableSyncConfigDTO
         if (isset($flipPkMap[$targetColumnName])) {
             return $flipPkMap[$targetColumnName];
         }
-        
+
         // Then search in data mapping
         $flipDataMap = array_flip($this->dataColumnMapping);
         if (isset($flipDataMap[$targetColumnName])) {
             return $flipDataMap[$targetColumnName];
         }
-        
+
         throw new \InvalidArgumentException("Target column '{$targetColumnName}' not found in column mappings.");
     }
 }

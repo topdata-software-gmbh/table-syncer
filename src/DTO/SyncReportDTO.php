@@ -65,9 +65,9 @@ class SyncReportDTO
     {
         return sprintf(
             "Inserts: %d, Updates: %d, Deletes: %d",
-            $this->numInserts,
-            $this->numUpdates,
-            $this->numDeletes
+            $this->insertedCount,
+            $this->updatedCount,
+            $this->deletedCount
         );
     }
 }
