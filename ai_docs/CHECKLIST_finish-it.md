@@ -2,83 +2,87 @@
 
 ## Phase 0: Critical Alignment & Prerequisite Fixes
 
-*   [ ] **`src/DTO/TableSyncConfigDTO.php` Corrections:**
-    *   [ ] Add `public string $placeholderDatetime` property with a default value (e.g., `'2222-02-22 00:00:00'`).
-    *   [ ] Update constructor to accept and initialize `$placeholderDatetime`.
-*   [ ] **`src/Service/GenericTableSyncer.php` Refactoring:**
-    *   [ ] Modify constructor for dependency injection of `GenericSchemaManager`, `GenericIndexManager`, `GenericDataHasher` (use `private readonly`).
-    *   [ ] Remove internal instantiation (`new ...`) of these services.
-    *   [ ] Replace direct `$config->someProperty` access with calls to `TableSyncConfigDTO` helper methods (e.g., `getSourceDataColumns()`).
-    *   [ ] Replace hardcoded placeholder dates with `$config->placeholderDatetime` in `ensureDatetimeValues` and `loadDataFromSourceToTemp`.
-    *   [ ] Ensure `ensureDatetimeValues` uses `$config->nonNullableDatetimeSourceColumns`.
-    *   [ ] (Optional) Replace `UtilDoctrineDbal` usage with internal helpers or direct DBAL calls.
+*   [x] **`src/DTO/TableSyncConfigDTO.php` Corrections:**
+    *   [x] Add `public string $placeholderDatetime` property with a default value (e.g., `'2222-02-22 00:00:00'`).
+    *   [x] Update constructor to accept and initialize `$placeholderDatetime`.
+*   [x] **`src/Service/GenericTableSyncer.php` Refactoring:**
+    *   [x] Modify constructor for dependency injection of `GenericSchemaManager`, `GenericIndexManager`, `GenericDataHasher` (use `private readonly`).
+    *   [x] Remove internal instantiation (`new ...`) of these services.
+    *   [x] Replace direct `$config->someProperty` access with calls to `TableSyncConfigDTO` helper methods (e.g., `getSourceDataColumns()`).
+    *   [x] Replace hardcoded placeholder dates with `$config->placeholderDatetime` in `ensureDatetimeValues` and `loadDataFromSourceToTemp`.
+    *   [x] Ensure `ensureDatetimeValues` uses `$config->nonNullableDatetimeSourceColumns`.
+    *   [x] (Optional) Replace `UtilDoctrineDbal` usage with internal helpers or direct DBAL calls.
 
 ## Phase 1: Implement `src/Service/GenericSchemaManager.php`
 
-*   [ ] **`ensureLiveTable(TableSyncConfigDTO $config)` Implementation:**
-    *   [ ] Log entry for ensuring live table.
-    *   [ ] Check if live table exists.
-    *   [ ] If not exists: Call `_createTable()` for live table.
-    *   [ ] If exists: Introspect, validate against expected data and metadata columns. Throw `ConfigurationException` on critical mismatch (missing columns).
-*   [ ] **`prepareTempTable(TableSyncConfigDTO $config)` Implementation:**
-    *   [ ] Log entry for preparing temp table.
-    *   [ ] Call `dropTempTable($config)`.
-    *   [ ] Define column structure (target PKs, target data columns, temp metadata columns).
-    *   [ ] Call `_createTable()` for temp table.
-*   [ ] **`getLiveTableSpecificMetadataColumns(TableSyncConfigDTO $config)` Implementation:**
-    *   [ ] Return array defining `$config->metadataColumns->id` (auto-increment, PK).
-    *   [ ] Return array defining `$config->metadataColumns->contentHash`.
-    *   [ ] Return array defining `$config->metadataColumns->createdAt` (with default).
-    *   [ ] Return array defining `$config->metadataColumns->updatedAt` (with default).
-    *   [ ] Return array defining `$config->metadataColumns->batchRevision`.
-*   [ ] **`getTempTableSpecificMetadataColumns(TableSyncConfigDTO $config)` Implementation:**
-    *   [ ] Return array defining `$config->metadataColumns->contentHash` (nullable initially).
-    *   [ ] Return array defining `$config->metadataColumns->createdAt` (with default).
-*   [ ] **`_createTable(...)` Implementation:**
-    *   [ ] Log table creation.
-    *   [ ] Use DBAL SchemaManager and `Table` object.
-    *   [ ] Add columns based on definitions (name, type, options).
-    *   [ ] Set primary key(s).
-    *   [ ] Add other specified indexes.
-    *   [ ] Execute `createTable()`.
-*   [ ] **`getSourceColumnTypes(TableSyncConfigDTO $config)` Implementation:**
-    *   [ ] Implement caching.
-    *   [ ] Use DBAL introspection (`introspectTable()->getColumns()`).
-    *   [ ] Map `Type` object to DBAL type string using `getDbalTypeNameFromTypeObject()`.
-*   [ ] **`getDbalTypeNameFromTypeObject(Type $type)` Implementation:**
-    *   [ ] Implement as `return $type->getName();`.
-*   [ ] **`mapInformationSchemaType(...)` Implementation:**
-    *   [ ] Map common MySQL/MariaDB `DATA_TYPE` values to `Doctrine\DBAL\Types\Types`.
-*   [ ] **`dropTempTable(TableSyncConfigDTO $config)` Implementation:**
-    *   [ ] Log drop attempt.
-    *   [ ] Use DBAL `dropTable()`.
+*   [x] **`ensureLiveTable(TableSyncConfigDTO $config)` Implementation:**
+    *   [x] Log entry/exit.
+    *   [x] Check if live table already exists and return early if so.
+    *   [x] Get column definitions for target primary key columns (from source column types).
+    *   [x] Get column definitions for target data columns (from source column types).
+    *   [x] Add metadata column definitions from `getLiveTableSpecificMetadataColumns()`.
+    *   [x] Call internal `_createTable()` method.
+*   [x] **`prepareTempTable(TableSyncConfigDTO $config)` Implementation:**
+    *   [x] Log entry/exit.
+    *   [x] Drop existing temp table if it exists.
+    *   [x] Get column definitions for target primary key columns (from source column types).
+    *   [x] Get column definitions for target data columns (from source column types).
+    *   [x] Add metadata column definitions from `getTempTableSpecificMetadataColumns()`.
+    *   [x] Call internal `_createTable()` method.
+*   [x] **`getLiveTableSpecificMetadataColumns(TableSyncConfigDTO $config)` Implementation:**
+    *   [x] Return array defining `$config->metadataColumns->id` (auto-increment, PK).
+    *   [x] Return array defining `$config->metadataColumns->contentHash`.
+    *   [x] Return array defining `$config->metadataColumns->createdAt` (with default).
+    *   [x] Return array defining `$config->metadataColumns->updatedAt` (with default).
+    *   [x] Return array defining `$config->metadataColumns->batchRevision`.
+*   [x] **`getTempTableSpecificMetadataColumns(TableSyncConfigDTO $config)` Implementation:**
+    *   [x] Return array defining `$config->metadataColumns->contentHash` (nullable initially).
+    *   [x] Return array defining `$config->metadataColumns->createdAt` (with default).
+*   [x] **`_createTable(...)` Implementation:**
+    *   [x] Log table creation.
+    *   [x] Use DBAL SchemaManager and `Table` object.
+    *   [x] Add columns based on definitions (name, type, options).
+    *   [x] Set primary key(s).
+    *   [x] Add other specified indexes.
+    *   [x] Execute `createTable()`.
+*   [x] **`getSourceColumnTypes(TableSyncConfigDTO $config)` Implementation:**
+    *   [x] Implement caching.
+    *   [x] Use DBAL introspection (`introspectTable()->getColumns()`).
+    *   [x] Map `Type` object to DBAL type string using `getDbalTypeNameFromTypeObject()`.
+*   [x] **`getDbalTypeNameFromTypeObject(Type $type)` Implementation:**
+    *   [x] Implement as `return $type->getName();`.
+*   [x] **`mapInformationSchemaType(...)` Implementation:**
+    *   [x] Map common MySQL/MariaDB `DATA_TYPE` values to `Doctrine\DBAL\Types\Types`.
+*   [x] **`dropTempTable(TableSyncConfigDTO $config)` Implementation:**
+    *   [x] Log drop attempt.
+    *   [x] Use DBAL `dropTable()`.
 
 ## Phase 2: Implement `src/Service/GenericIndexManager.php`
 
-*   [ ] **`addIndicesToTempTableAfterLoad(TableSyncConfigDTO $config)` Implementation:**
-    *   [ ] Log entry.
-    *   [ ] Define index for target PKs on temp table.
-    *   [ ] Define index for content hash on temp table.
-    *   [ ] Call `addIndexIfNotExists()` for each.
-*   [ ] **`addIndicesToLiveTable(TableSyncConfigDTO $config)` Implementation:**
-    *   [ ] Log entry.
-    *   [ ] Define index for content hash on live table.
-    *   [ ] (Optional) Define unique index for business PKs on live table.
-    *   [ ] Call `addIndexIfNotExists()` for each.
-*   [ ] **`addIndexIfNotExists(...)` Implementation:**
-    *   [ ] Log check/add attempt.
-    *   [ ] Introspect table to check if index exists by name.
-    *   [ ] If not exists, execute `CREATE INDEX` or `CREATE UNIQUE INDEX` (MySQL syntax).
+*   [x] **`addIndicesToTempTableAfterLoad(TableSyncConfigDTO $config)` Implementation:**
+    *   [x] Log entry.
+    *   [x] Define index for target PKs on temp table.
+    *   [x] Define index for content hash on temp table.
+    *   [x] Call `addIndexIfNotExists()` for each.
+*   [x] **`addIndicesToLiveTable(TableSyncConfigDTO $config)` Implementation:**
+    *   [x] Log entry.
+    *   [x] Define index for content hash on live table.
+    *   [x] (Optional) Define unique index for business PKs on live table.
+    *   [x] Call `addIndexIfNotExists()` for each.
+*   [x] **`addIndexIfNotExists(...)` Implementation:**
+    *   [x] Log check/add attempt.
+    *   [x] Introspect table to check if index exists by name.
+    *   [x] If not exists, execute `CREATE INDEX` or `CREATE UNIQUE INDEX` (MySQL syntax).
 
 ## Phase 3: Implement `src/Service/GenericDataHasher.php`
 
-*   [ ] **`addHashesToTempTable(TableSyncConfigDTO $config)` Implementation:**
-    *   [ ] Log entry.
-    *   [ ] Get target columns for hashing from `$config->getTargetColumnsForContentHash()`.
-    *   [ ] Handle empty `$hashSourceColumns` (warn, return 0).
-    *   [ ] Construct `CONCAT(...)` expression with `COALESCE(CAST(column AS CHAR), '')` for each column (MySQL).
-    *   [ ] Construct `UPDATE ... SET contentHash = SHA2(concat_expression, 256)` SQL.
-    *   [ ] Execute and return affected rows.
+*   [x] **`addHashesToTempTable(TableSyncConfigDTO $config)` Implementation:**
+    *   [x] Log entry.
+    *   [x] Get target columns for hashing from `$config->getTargetColumnsForContentHash()`.
+    *   [x] Handle empty `$hashSourceColumns` (warn, return 0).
+    *   [x] Construct `CONCAT(...)` expression with `COALESCE(CAST(column AS CHAR), '')` for each column (MySQL).
+    *   [x] Construct `UPDATE ... SET contentHash = SHA2(concat_expression, 256)` SQL.
+    *   [x] Execute and return affected rows.
 
 ## Phase 4: Finalize `src/Service/GenericTableSyncer.php`
 

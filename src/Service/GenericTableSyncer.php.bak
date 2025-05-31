@@ -337,6 +337,13 @@ class GenericTableSyncer
     }
 
     /**
+     * Gets the DBAL parameter type for a value.
+     *
+     * @param string $columnName
+     * @param mixed $value
+     * @return int
+     */
+    /**
      * Gets the DBAL parameter type for a value based on runtime type detection.
      *
      * @param string $columnName Column name (unused, kept for API compatibility)

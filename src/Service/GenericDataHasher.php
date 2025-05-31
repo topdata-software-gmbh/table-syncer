@@ -17,29 +17,51 @@ class GenericDataHasher
 
     /**
      * Adds hashes to the temporary table based on the configuration.
+     * Uses SHA-256 hashing on concatenated column values.
      *
      * @param TableSyncConfigDTO $config
-     * @return int
+     * @return int Number of rows where hashes were added
      */
     public function addHashesToTempTable(TableSyncConfigDTO $config): int
     {
-        $this->logger->debug('Adding hashes to temp table');
+        $this->logger->debug('Adding hashes to temp table', [
+            'tempTable' => $config->targetTempTableName
+        ]);
 
+        $targetConn = $config->targetConnection;
+        $tempTableName = $targetConn->quoteIdentifier($config->targetTempTableName);
+        $contentHashColumn = $targetConn->quoteIdentifier($config->metadataColumns->contentHash);
+        
         // Get target columns for content hash
-        $targetColumns = $config->getTargetColumnsForContentHash();
-        if (empty($targetColumns)) {
-            $this->logger->info('No target columns for content hash');
+        $hashSourceColumns = $config->getTargetColumnsForContentHash();
+        if (empty($hashSourceColumns)) {
+            $this->logger->warning('No columns specified for content hash calculation. Skipping hash generation.');
             return 0;
         }
+        
+        $this->logger->debug('Generating content hashes from columns', [
+            'columns' => implode(', ', $hashSourceColumns)
+        ]);
 
         // Platform-aware CONCAT, SHA2, COALESCE for hashing
-        $columnList = implode(', ', array_map(fn($col) => "COALESCE($col, '')", $targetColumns));
-        $hashQuery = "UPDATE {$config->tempTableName} SET content_hash = SHA2(CONCAT($columnList), 256)";
+        // Cast each column to CHAR and handle NULL values with COALESCE
+        $concatParts = [];
+        foreach ($hashSourceColumns as $column) {
+            $quotedCol = $targetConn->quoteIdentifier($column);
+            $concatParts[] = "COALESCE(CAST({$quotedCol} AS CHAR), '')"; 
+        }
+        
+        $columnList = implode(', ', $concatParts);
+        
+        // Construct the final hash query with SHA2 (SHA-256)
+        $hashQuery = "UPDATE {$tempTableName} SET {$contentHashColumn} = SHA2(CONCAT({$columnList}), 256)";
+        
+        $this->logger->debug('Executing hash update query', ['query' => $hashQuery]);
+        
+        // Execute the query and get number of affected rows
+        $result = $targetConn->executeStatement($hashQuery);
 
-        // Execute the query
-        $result = $config->getConnection()->executeStatement($hashQuery);
-
-        $this->logger->info('Hashes added to temp table', ['affected_rows' => $result]);
+        $this->logger->info('Content hashes added to temp table', ['affected_rows' => $result]);
 
         return $result;
     }

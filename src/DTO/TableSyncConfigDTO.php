@@ -36,6 +36,9 @@ class TableSyncConfigDTO
     public string $targetHashColumnType = \Doctrine\DBAL\Types\Types::STRING;
     /** @var int Length for hash column if string type */
     public int $targetHashColumnLength = 64; // SHA256 hex output
+    
+    /** @var string Default placeholder for non-nullable datetime columns */
+    public string $placeholderDatetime = '2222-02-22 00:00:00';
 
     public function __construct(
         Connection              $sourceConnection,
@@ -47,7 +50,8 @@ class TableSyncConfigDTO
         array                   $columnsForContentHash,
         ?MetadataColumnNamesDTO $metadataColumns = null,
         array                   $nonNullableDatetimeSourceColumns = [],
-        ?string                 $targetTempTableName = null
+        ?string                 $targetTempTableName = null,
+        ?string                 $placeholderDatetime = null
     )
     {
         $this->sourceConnection = $sourceConnection;
@@ -61,6 +65,9 @@ class TableSyncConfigDTO
         $this->columnsForContentHash = $columnsForContentHash;
         $this->nonNullableDatetimeSourceColumns = $nonNullableDatetimeSourceColumns;
         $this->metadataColumns = $metadataColumns ?? new MetadataColumnNamesDTO();
+        if ($placeholderDatetime !== null) {
+            $this->placeholderDatetime = $placeholderDatetime;
+        }
 
         // Basic validation
         if (empty($this->primaryKeyColumnMap)) {
