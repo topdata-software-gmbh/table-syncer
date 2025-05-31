@@ -2,165 +2,95 @@
 
 namespace TopdataSoftwareGmbh\TableSyncer\DTO;
 
+use App\DTO\TableSync\MetadataColumnNamesDTO;
 use DateTimeInterface;
 use Doctrine\DBAL\Connection;
 
 /**
- * Class TableSyncConfigDTO
- * Represents the configuration for table synchronization.
+ * Configuration DTO for a generic table synchronization operation.
  */
 class TableSyncConfigDTO
 {
     public Connection $sourceConnection;
+    public string $sourceTableName;
+    /** @var string[] Primary key column(s) in the source table. */
+    public array $sourcePrimaryKeyColumns;
+    /** @var string[] Data columns from source to be synced to target. */
+    public array $dataColumnsToSync;
+
     public Connection $targetConnection;
-    public array $primaryKeyColumnMap;
-    public array $dataColumnMapping;
+    public string $targetLiveTableName;
+    public string $targetTempTableName;
+
+    /**
+     * @var string[] Columns in the target table that correspond to sourcePrimaryKeyColumns,
+     * used for matching rows. Typically the same names as sourcePrimaryKeyColumns.
+     */
+    public array $targetMatchingKeyColumns;
+
+    /** @var string[] Subset of dataColumnsToSync used for generating the content hash. */
     public array $columnsForContentHash;
-    public array $nonNullableDatetimeSourceColumns;
+
+    /** @var string[] Datetime columns that cannot be null and should be handled with special date */
+    public array $nonNullableDatetimeColumns = [];
+
     public MetadataColumnNamesDTO $metadataColumns;
-    public DateTimeInterface $placeholderDatetime;
 
-    /**
-     * Constructor with parameters for required properties and validation.
-     *
-     * @param Connection $sourceConnection
-     * @param Connection $targetConnection
-     * @param array $primaryKeyColumnMap
-     * @param array $dataColumnMapping
-     * @param array $columnsForContentHash
-     * @param array $nonNullableDatetimeSourceColumns
-     * @param MetadataColumnNamesDTO $metadataColumns
-     * @param DateTimeInterface $placeholderDatetime
-     *
-     * @throws \InvalidArgumentException if validation fails
-     */
+    /** @var string Type for the auto-incrementing ID column in target tables (e.g., Types::INTEGER). */
+    public string $targetIdColumnType = \Doctrine\DBAL\Types\Types::INTEGER;
+    /** @var string Type for hash column (e.g., Types::STRING) */
+    public string $targetHashColumnType = \Doctrine\DBAL\Types\Types::STRING;
+    /** @var int Length for hash column if string type */
+    public int $targetHashColumnLength = 64; // SHA256 hex output
+
     public function __construct(
-        Connection $sourceConnection,
-        Connection $targetConnection,
-        array $primaryKeyColumnMap,
-        array $dataColumnMapping,
-        array $columnsForContentHash = [],
-        array $nonNullableDatetimeSourceColumns = [],
-        MetadataColumnNamesDTO $metadataColumns = null,
-        DateTimeInterface $placeholderDatetime = null
-    ) {
+        Connection              $sourceConnection,
+        string                  $sourceTableName,
+        array                   $sourcePrimaryKeyColumns,
+        array                   $dataColumnsToSync,
+        Connection              $targetConnection,
+        string                  $targetLiveTableName,
+        array                   $targetMatchingKeyColumns,
+        array                   $columnsForContentHash,
+        ?MetadataColumnNamesDTO $metadataColumns = null,
+        ?string                 $targetTempTableName = null
+    )
+    {
         $this->sourceConnection = $sourceConnection;
+        $this->sourceTableName = $sourceTableName;
+        $this->sourcePrimaryKeyColumns = $sourcePrimaryKeyColumns;
+        $this->dataColumnsToSync = $dataColumnsToSync; // Ensure PKs are part of this if they are also data
+
         $this->targetConnection = $targetConnection;
-        $this->primaryKeyColumnMap = $primaryKeyColumnMap;
-        $this->dataColumnMapping = $dataColumnMapping;
+        $this->targetLiveTableName = $targetLiveTableName;
+        $this->targetTempTableName = $targetTempTableName ?? $targetLiveTableName . '_temp';
+        $this->targetMatchingKeyColumns = $targetMatchingKeyColumns;
         $this->columnsForContentHash = $columnsForContentHash;
-        $this->nonNullableDatetimeSourceColumns = $nonNullableDatetimeSourceColumns;
         $this->metadataColumns = $metadataColumns ?? new MetadataColumnNamesDTO();
-        $this->placeholderDatetime = $placeholderDatetime ?? new \DateTime();
 
-        // Validate primaryKeyColumnMap and dataColumnMapping are not empty
-        if (empty($this->primaryKeyColumnMap) || empty($this->dataColumnMapping)) {
-            throw new \InvalidArgumentException('Primary key column map and data column mapping must not be empty.');
+        // Basic validation
+        if (empty($this->sourcePrimaryKeyColumns) || empty($this->targetMatchingKeyColumns) ||
+            count($this->sourcePrimaryKeyColumns) !== count($this->targetMatchingKeyColumns)) {
+            throw new \InvalidArgumentException('Source and Target primary/matching key columns must be defined and have corresponding counts.');
         }
-
-        // Validate primary keys, hash columns, and datetime columns exist in dataColumnMapping
-        foreach (
-            array_merge(
-                $this->primaryKeyColumnMap,
-                $this->columnsForContentHash,
-                $this->nonNullableDatetimeSourceColumns
-            ) as $column
-        ) {
-            if (!isset($this->dataColumnMapping[$column])) {
-                throw new \InvalidArgumentException("Column '$column' must exist in data column mapping.");
-            }
+        if (empty($this->dataColumnsToSync)) {
+            throw new \InvalidArgumentException('Data columns to sync cannot be empty.');
+        }
+        if (empty($this->columnsForContentHash)) {
+            throw new \InvalidArgumentException('Columns for content hash cannot be empty.');
         }
     }
 
     /**
-     * Get source primary key columns.
-     *
-     * @return array
-     */
-    public function getSourcePrimaryKeyColumns(): array
-    {
-        return array_keys($this->primaryKeyColumnMap);
-    }
-
-    /**
-     * Get target primary key columns.
-     *
-     * @return array
-     */
-    public function getTargetPrimaryKeyColumns(): array
-    {
-        return array_values($this->primaryKeyColumnMap);
-    }
-
-    /**
-     * Get source data columns.
-     *
-     * @return array
-     */
-    public function getSourceDataColumns(): array
-    {
-        return array_keys($this->dataColumnMapping);
-    }
-
-    /**
-     * Get target data columns.
-     *
-     * @return array
-     */
-    public function getTargetDataColumns(): array
-    {
-        return array_values($this->dataColumnMapping);
-    }
-
-    /**
-     * Get target column name for a given source column name.
-     *
-     * @param string $sourceColumnName
-     * @return string
-     */
-    public function getTargetColumnName(string $sourceColumnName): string
-    {
-        return $this->dataColumnMapping[$sourceColumnName] ?? $sourceColumnName;
-    }
-
-    /**
-     * Get target columns for content hash.
-     *
-     * @return array
-     */
-    public function getTargetColumnsForContentHash(): array
-    {
-        $columns = [];
-        foreach ($this->columnsForContentHash as $column) {
-            $columns[] = $this->getTargetColumnName($column);
-        }
-        return $columns;
-    }
-
-    /**
-     * Get target non-nullable datetime columns.
-     *
-     * @return array
-     */
-    public function getTargetNonNullableDatetimeColumns(): array
-    {
-        $columns = [];
-        foreach ($this->nonNullableDatetimeSourceColumns as $column) {
-            $columns[] = $this->getTargetColumnName($column);
-        }
-        return $columns;
-    }
-
-    /**
-     * Get temporary table columns.
-     *
-     * @return array
+     * Gets all columns that should exist in the temp table.
+     * This includes target matching keys, data columns, and specific metadata.
      */
     public function getTempTableColumns(): array
     {
-        return array_merge(
-            $this->getTargetPrimaryKeyColumns(),
-            $this->getTargetDataColumns()
-        );
+        return array_unique(array_merge(
+            $this->targetMatchingKeyColumns,
+            $this->dataColumnsToSync,
+            [$this->metadataColumns->contentHash, $this->metadataColumns->createdAt]
+        ));
     }
 }

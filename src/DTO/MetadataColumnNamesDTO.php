@@ -8,7 +8,7 @@ use DateTimeInterface;
  * Class MetadataColumnNamesDTO
  * Represents the default column names for metadata in the table sync process.
  */
-class MetadataColumnNamesDTO
+class MetadataColumnNamesDTO extends \App\DTO\TableSync\MetadataColumnNamesDTO
 {
     public string $id;
     public string $contentHash;
