@@ -3,22 +3,15 @@
 namespace TopdataSoftwareGmbh\TableSyncer\Service;
 
 use Doctrine\DBAL\Connection;
-
 // use Doctrine\DBAL\ParameterType; // Not directly used in this snippet
-use Doctrine\DBAL\Schema\Column as DbalColumn;
-
-// Alias to avoid confusion
+use Doctrine\DBAL\Schema\Column as DbalColumn; // Alias to avoid confusion
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Type;
-use Doctrine\DBAL\Types\Types;
-
-// Import for easier type referencing
+use Doctrine\DBAL\Types\Types; // Import for easier type referencing
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
-use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException;
-
-// For schema validation
+use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException; // For schema validation
 
 class GenericSchemaManager
 {
@@ -89,8 +82,6 @@ class GenericSchemaManager
         return $columnDefinitions;
     }
 
-    // ... (ensureLiveTable and prepareTempTable need to use getSourceColumnDefinitions)
-
     /**
      * Prepares the temp table for synchronization.
      *
@@ -136,7 +127,6 @@ class GenericSchemaManager
             $table->setPrimaryKey($targetPkColumnNames);
         }
 
-
         // ---- Target Data Columns (from source structure, excluding PKs already added) ----
         foreach ($config->getDataColumnMapping() as $sourceColName => $targetColName) {
             // Skip if this column was already added as part of the primary key
@@ -166,7 +156,6 @@ class GenericSchemaManager
         $this->logger->info('Temp table created successfully', ['table' => $tempTableName]);
     }
 
-
     /**
      * Ensures the live table exists and has the correct schema.
      *
@@ -189,10 +178,49 @@ class GenericSchemaManager
             $this->logger->debug("Live table '{$liveTableName}' exists. Validating schema...");
             $actualTable = $dbalSchemaManager->introspectTable($liveTableName);
 
-            // Validate PKs (mapped from source)
+            // ---- Get expected metadata columns ----
+            $liveMetadataDefs = $this->getLiveTableSpecificMetadataColumns($config);
+            $syncerIdColName = $config->metadataColumns->id;
+
+            // ---- Check if the table seems to be using the business PK as its main PK ----
+            // This logic was an attempt to handle pre-existing tables not using _syncer_id as PK.
+            // Since you dropped the table, this specific $isUsingBusinessPkAsMainPk path might not be hit
+            // on the first run, but it's good to keep it correct for future scenarios.
+            $targetBusinessPkColumns = $config->getTargetPrimaryKeyColumns();
+            $isUsingBusinessPkAsMainPk = false;
+            if (count($targetBusinessPkColumns) === 1) { // Simplified: only handles single-column business PKs for this specific logic
+                $businessPkName = $targetBusinessPkColumns[0];
+                $currentPrimaryKey = $actualTable->getPrimaryKey(); // Get PK object
+                if ($currentPrimaryKey !== null && // Check if a PK exists
+                    $currentPrimaryKey->getColumns() === [$businessPkName] && // Check if it's on the business PK column
+                    !$actualTable->hasColumn($syncerIdColName) // And _syncer_id is NOT present
+                ) {
+                    $this->logger->info(
+                        "Live table '{$liveTableName}' appears to use business PK '{$businessPkName}' as its primary key, and '{$syncerIdColName}' is missing. Proceeding with validation for existing _syncer_ columns."
+                    );
+                    $isUsingBusinessPkAsMainPk = true;
+                }
+            }
+
+            if (!$isUsingBusinessPkAsMainPk) {
+                // Standard validation: expect _syncer_id as PK
+                if (!$actualTable->hasColumn($syncerIdColName)) {
+                    throw new ConfigurationException("Live table '{$liveTableName}' is missing expected metadata column '{$syncerIdColName}'. If it's a new setup, drop the table. If it's an existing table not managed by syncer's _syncer_id PK, adjust configuration or table structure.");
+                }
+
+                $primaryKey = $actualTable->getPrimaryKey(); // Get the PrimaryKey Index object or null
+                if ($primaryKey === null) {
+                    throw new ConfigurationException("Live table '{$liveTableName}' does not have a primary key defined, but expected '{$config->metadataColumns->id}'.");
+                }
+                if ($primaryKey->getColumns() !== [$config->metadataColumns->id]) { // Compare array of column names
+                    throw new ConfigurationException("Live table '{$liveTableName}' primary key is defined on columns [" . implode(', ', $primaryKey->getColumns()) . "] but expected '{$config->metadataColumns->id}'.");
+                }
+            }
+
+            // Validate mapped business PK columns (these should always exist as data)
             foreach ($config->getPrimaryKeyColumnMap() as $sourcePkColName => $targetPkColName) {
                 if (!$actualTable->hasColumn($targetPkColName)) {
-                    throw new ConfigurationException("Live table '{$liveTableName}' is missing expected business primary key column '{$targetPkColName}'.");
+                    throw new ConfigurationException("Live table '{$liveTableName}' is missing expected business primary key column '{$targetPkColName}' (mapped from source).");
                 }
                 // Further type/option validation can be added here if needed
             }
@@ -203,69 +231,64 @@ class GenericSchemaManager
                 }
                 // Further type/option validation
             }
-            // Validate Metadata Columns
-            $liveMetadataDefs = $this->getLiveTableSpecificMetadataColumns($config);
+            // Validate Metadata Columns (excluding _syncer_id if $isUsingBusinessPkAsMainPk)
             foreach ($liveMetadataDefs as $colDef) {
+                if ($isUsingBusinessPkAsMainPk && $colDef['name'] === $syncerIdColName) {
+                    continue; // Skip _syncer_id validation if business PK is used and _syncer_id is absent
+                }
                 if (!$actualTable->hasColumn($colDef['name'])) {
-                    throw new ConfigurationException("Live table '{$liveTableName}' is missing expected metadata column '{$colDef['name']}'. Consider running without pre-existing live table for initial setup.");
+                    throw new ConfigurationException("Live table '{$liveTableName}' is missing expected metadata column '{$colDef['name']}'.");
                 }
                 // Further type/option validation for metadata columns
             }
-            // Validate live table's own primary key (the _syncer_id)
-            if (!$actualTable->hasPrimaryKey() || $actualTable->getPrimaryKey()->getColumns() !== [$config->metadataColumns->id]) {
-                throw new ConfigurationException("Live table '{$liveTableName}' primary key is not correctly set to '{$config->metadataColumns->id}'.");
-            }
 
-            $this->logger->info("Live table '{$liveTableName}' schema appears valid.");
+            $this->logger->info("Live table '{$liveTableName}' schema appears valid " . ($isUsingBusinessPkAsMainPk ? "using business PK." : "using syncer PK."));
             return;
         }
 
-        $this->logger->info("Live table '{$liveTableName}' does not exist. Creating...");
+        // ---- If table does NOT exist, create it with _syncer_id as PK ----
+        $this->logger->info("Live table '{$liveTableName}' does not exist. Creating with '{$config->metadataColumns->id}' as PK...");
         $table = new Table($liveTableName);
-
-        // ---- Live Table Specific Metadata Columns (PK first) ----
         $liveMetadataDefs = $this->getLiveTableSpecificMetadataColumns($config);
         $syncerIdColName = $config->metadataColumns->id;
         $addedSyncerId = false;
 
+        // Add _syncer_id metadata column AND SET AS PK
         foreach ($liveMetadataDefs as $colDef) {
             if ($colDef['name'] === $syncerIdColName) {
                 $options = $this->_extractColumnOptions($colDef);
                 $table->addColumn($colDef['name'], $colDef['type'], $options);
-                $table->setPrimaryKey([$syncerIdColName]);
+                $table->setPrimaryKey([$syncerIdColName]); // Syncer's own ID is the PK
                 $addedSyncerId = true;
-                break; // Add PK first
+                break;
             }
         }
         if (!$addedSyncerId) {
-            throw new ConfigurationException("Syncer ID column '{$syncerIdColName}' definition not found in getLiveTableSpecificMetadataColumns.");
+            throw new ConfigurationException("Syncer ID column '{$syncerIdColName}' definition not found in getLiveTableSpecificMetadataColumns for new table creation.");
         }
 
         // Add other metadata columns
         foreach ($liveMetadataDefs as $colDef) {
-            if ($colDef['name'] === $syncerIdColName) continue; // Already added
+            if ($colDef['name'] === $syncerIdColName) continue;
             $options = $this->_extractColumnOptions($colDef);
             $table->addColumn($colDef['name'], $colDef['type'], $options);
         }
 
-        // ---- Target Primary Key Columns (from source structure, as data, will get unique index) ----
+        // Add Business Primary Key Columns (as data, will get a unique index later by GenericIndexManager)
         foreach ($config->getPrimaryKeyColumnMap() as $sourcePkColName => $targetPkColName) {
             if (!isset($sourceColumnDefinitions[$sourcePkColName])) {
                 throw new ConfigurationException("Source primary key column '{$sourcePkColName}' not found in introspected schema of '{$config->sourceTableName}'.");
             }
             $def = $sourceColumnDefinitions[$sourcePkColName];
             $options = $this->_extractColumnOptions($def);
-            $options['autoincrement'] = false; // Not auto-incrementing in live table
-            // These PKs are data, nullability depends on source or can be made notnull if required by business logic
-            // $options['notnull'] = true; // For example
+            $options['autoincrement'] = false; // Business PKs are data, not AI in this new table
             $table->addColumn($targetPkColName, $def['type'], $options);
         }
 
-        // ---- Target Data Columns (from source structure, excluding PKs already added) ----
+        // Add other Data Columns
         foreach ($config->getDataColumnMapping() as $sourceColName => $targetColName) {
-            // Skip if this column was already added as part of the business primary key
             if (isset($config->primaryKeyColumnMap[$sourceColName]) && $config->primaryKeyColumnMap[$sourceColName] === $targetColName) {
-                continue;
+                continue; // Already added as a business PK column
             }
             if (!isset($sourceColumnDefinitions[$sourceColName])) {
                 throw new ConfigurationException("Source data column '{$sourceColName}' not found in introspected schema of '{$config->sourceTableName}'.");
@@ -277,9 +300,8 @@ class GenericSchemaManager
         }
 
         $dbalSchemaManager->createTable($table);
-        $this->logger->info("Live table '{$liveTableName}' created successfully.");
+        $this->logger->info("Live table '{$liveTableName}' created successfully with '{$syncerIdColName}' as PK.");
     }
-
 
     /**
      * Gets metadata columns for the live table.
@@ -293,38 +315,35 @@ class GenericSchemaManager
         $this->logger->debug('Getting live table specific metadata columns');
         $meta = $config->metadataColumns;
 
-        // Note: The order might matter if one depends on another, but usually not for basic columns.
-        // The syncer_id should be defined as the PK.
         return [
             [
                 'name'          => $meta->id,
-                'type'          => $config->targetIdColumnType, // e.g., Types::INTEGER
+                'type'          => $config->targetIdColumnType,
                 'notnull'       => true,
                 'autoincrement' => true,
-                // 'primary' => true, // Handled by setPrimaryKey()
             ],
             [
                 'name'    => $meta->contentHash,
-                'type'    => $config->targetHashColumnType, // e.g., Types::STRING
+                'type'    => $config->targetHashColumnType,
                 'length'  => $config->targetHashColumnLength,
-                'notnull' => true, // Or false if rows can exist before hashing
+                'notnull' => true,
             ],
             [
                 'name'    => $meta->createdAt,
                 'type'    => Types::DATETIME_MUTABLE,
                 'notnull' => true,
-                'default' => $config->placeholderDatetime, // Or CURRENT_TIMESTAMP for MySQL
+                'default' => $config->placeholderDatetime,
             ],
             [
                 'name'    => $meta->updatedAt,
                 'type'    => Types::DATETIME_MUTABLE,
                 'notnull' => true,
-                'default' => $config->placeholderDatetime, // Or CURRENT_TIMESTAMP and ON UPDATE for MySQL
+                'default' => $config->placeholderDatetime,
             ],
             [
                 'name'    => $meta->batchRevision,
-                'type'    => Types::INTEGER, // Or BIGINT
-                'notnull' => false, // Nullable is fine
+                'type'    => Types::INTEGER,
+                'notnull' => false,
             ],
         ];
     }
@@ -345,12 +364,12 @@ class GenericSchemaManager
                 'name'    => $meta->contentHash,
                 'type'    => $config->targetHashColumnType,
                 'length'  => $config->targetHashColumnLength,
-                'notnull' => false, // Hash is added later, so nullable initially
+                'notnull' => false,
             ],
             [
-                'name'    => $meta->createdAt, // Copied from source or set during temp load
+                'name'    => $meta->createdAt,
                 'type'    => Types::DATETIME_MUTABLE,
-                'notnull' => true, // Assuming it's always set
+                'notnull' => true,
                 'default' => $config->placeholderDatetime,
             ],
         ];
@@ -383,10 +402,6 @@ class GenericSchemaManager
         if (isset($columnDef['notnull']) && $columnDef['notnull'] !== null) {
             $options['notnull'] = $columnDef['notnull'];
         }
-        // Important: Handle 'default' carefully. If $columnDef['default'] is explicitly NULL,
-        // it means the column should have no default or use the DB's default for NULL.
-        // If 'default' key is not present, it means no specific default from definition.
-        // DBAL handles 'default' => null as "no default" for some types, or explicit NULL default.
         if (array_key_exists('default', $columnDef)) {
             $options['default'] = $columnDef['default'];
         }
@@ -402,13 +417,6 @@ class GenericSchemaManager
         return $options;
     }
 
-
-    // REMOVE/REPLACE old getSourceColumnTypes if it only returned type names
-    // public function getSourceColumnTypes(TableSyncConfigDTO $config): array ...
-
-    // ... (getDbalTypeNameFromTypeObject, mapInformationSchemaType, dropTempTable remain the same)
-    // ... (The old _createTable method is effectively replaced by direct Table object manipulation in prepare/ensure methods)
-
     /**
      * Gets the DBAL type name from a Type object.
      * For DBAL 4.x, this uses the static Type::lookupName() method.
@@ -419,10 +427,8 @@ class GenericSchemaManager
      */
     public function getDbalTypeNameFromTypeObject(\Doctrine\DBAL\Types\Type $type): string
     {
-        // For DBAL 4.x, use the static lookupName method from the Type class itself.
         return \Doctrine\DBAL\Types\Type::lookupName($type);
     }
-
 
     public function mapInformationSchemaType(
         string $infoSchemaType,
@@ -431,12 +437,8 @@ class GenericSchemaManager
         ?int   $numericScale
     ): string
     {
-        // This method might become less critical if getSourceColumnDefinitions works well,
-        // but can be kept as a fallback or utility if needed.
         $infoSchemaType = strtolower($infoSchemaType);
-        // ... (implementation as before) ...
         switch ($infoSchemaType) {
-            // String types
             case 'char':
             case 'varchar':
             case 'tinytext':
@@ -445,8 +447,6 @@ class GenericSchemaManager
             case 'mediumtext':
             case 'longtext':
                 return Types::TEXT;
-
-            // Numeric types
             case 'tinyint':
                 return ($numericPrecision === 1) ? Types::BOOLEAN : Types::SMALLINT;
             case 'smallint':
@@ -457,18 +457,14 @@ class GenericSchemaManager
                 return Types::INTEGER;
             case 'bigint':
                 return Types::BIGINT;
-
-            // Decimal types
             case 'decimal':
             case 'numeric':
                 return Types::DECIMAL;
             case 'float':
-                return Types::FLOAT; // DBAL float
+                return Types::FLOAT;
             case 'double':
-            case 'real': // Some DBs use REAL for double precision
-                return Types::FLOAT; // DBAL float often covers double too
-
-            // Date and time types
+            case 'real':
+                return Types::FLOAT;
             case 'date':
                 return Types::DATE_MUTABLE;
             case 'datetime':
@@ -476,10 +472,8 @@ class GenericSchemaManager
                 return Types::DATETIME_MUTABLE;
             case 'time':
                 return Types::TIME_MUTABLE;
-            case 'year': // MySQL YEAR type
-                return Types::SMALLINT; // Or Types::STRING depending on how you want to treat it
-
-            // Binary types
+            case 'year':
+                return Types::SMALLINT;
             case 'binary':
             case 'varbinary':
                 return Types::BINARY;
@@ -488,16 +482,11 @@ class GenericSchemaManager
             case 'mediumblob':
             case 'longblob':
                 return Types::BLOB;
-
-            // Enum type
-            case 'enum': // MySQL ENUM
-            case 'set':  // MySQL SET
+            case 'enum':
+            case 'set':
                 return Types::STRING;
-
-            // JSON type (MySQL 5.7+, PostgreSQL)
             case 'json':
                 return Types::JSON;
-
             default:
                 $this->logger->warning('Unknown data type from information_schema, defaulting to string', [
                     'type' => $infoSchemaType,
@@ -516,7 +505,6 @@ class GenericSchemaManager
         $schemaManager = $targetConn->createSchemaManager();
         $tempTableName = $config->targetTempTableName;
 
-        // check if table exists before dropping to avoid error
         if ($schemaManager->tablesExist([$tempTableName])) {
             $schemaManager->dropTable($tempTableName);
             $this->logger->info('Temp table dropped successfully', ['table' => $tempTableName]);
@@ -526,6 +514,27 @@ class GenericSchemaManager
     }
 
 
-
-
+    /**
+     * Gets the source column DBAL type names.
+     * This is primarily for GenericTableSyncer's loadDataFromSourceToTemp for parameter binding.
+     * It wraps getSourceColumnDefinitions to extract only the type name.
+     *
+     * @param TableSyncConfigDTO $config
+     * @return array<string, string> Column name to DBAL type name mapping
+     */
+    public function getSourceColumnTypes(TableSyncConfigDTO $config): array
+    {
+        $definitions = $this->getSourceColumnDefinitions($config);
+        $types = [];
+        foreach ($definitions as $columnName => $def) {
+            if (isset($def['type']) && is_string($def['type'])) {
+                $types[$columnName] = $def['type'];
+            } else {
+                // Fallback or error if type is not found/string, though getSourceColumnDefinitions should ensure it.
+                $this->logger->warning("Type not found or not a string for column '{$columnName}' in definitions from getSourceColumnDefinitions. Defaulting to 'string'.", ['definition' => $def]);
+                $types[$columnName] = Types::STRING; // Default to string if type is missing in the definition somehow
+            }
+        }
+        return $types;
+    }
 }
