@@ -36,24 +36,23 @@ class TableSyncConfigDTO
     public string $targetHashColumnType = \Doctrine\DBAL\Types\Types::STRING;
     /** @var int Length for hash column if string type */
     public int $targetHashColumnLength = 64; // SHA256 hex output
-    
+
     /** @var string Default placeholder for non-nullable datetime columns */
     public string $placeholderDatetime = '2222-02-22 00:00:00';
 
     public function __construct(
-        Connection              $sourceConnection,
-        string                  $sourceTableName,
-        array                   $primaryKeyColumnMap,
-        array                   $dataColumnMapping,
-        Connection              $targetConnection,
-        string                  $targetLiveTableName,
-        array                   $columnsForContentHash,
+        Connection $sourceConnection,
+        string $sourceTableName,
+        array $primaryKeyColumnMap,
+        array $dataColumnMapping,
+        Connection $targetConnection,
+        string $targetLiveTableName,
+        array $columnsForContentHash,
         ?MetadataColumnNamesDTO $metadataColumns = null,
-        array                   $nonNullableDatetimeSourceColumns = [],
-        ?string                 $targetTempTableName = null,
-        ?string                 $placeholderDatetime = null
-    )
-    {
+        array $nonNullableDatetimeSourceColumns = [],
+        ?string $targetTempTableName = null,
+        ?string $placeholderDatetime = null
+    ) {
         $this->sourceConnection = $sourceConnection;
         $this->sourceTableName = $sourceTableName;
         $this->primaryKeyColumnMap = $primaryKeyColumnMap;
@@ -185,5 +184,24 @@ class TableSyncConfigDTO
             [$this->metadataColumns->contentHash, $this->metadataColumns->createdAt]
         ));
     }
+    
+    /**
+     * Gets the primary key column mapping (source to target).
+     * 
+     * @return array<string, string> Key-value pairs of source to target column names
+     */
+    public function getPrimaryKeyColumnMap(): array
+    {
+        return $this->primaryKeyColumnMap;
+    }
+    
+    /**
+     * Gets the data column mapping (source to target).
+     *
+     * @return array<string, string> Key-value pairs of source to target column names
+     */
+    public function getDataColumnMapping(): array
+    {
+        return $this->dataColumnMapping;
+    }
 }
-

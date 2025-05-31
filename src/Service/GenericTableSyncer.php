@@ -23,8 +23,7 @@ class GenericTableSyncer
         GenericIndexManager $indexManager,
         GenericDataHasher $dataHasher,
         ?LoggerInterface $logger = null
-    )
-    {
+    ) {
         $this->schemaManager = $schemaManager;
         $this->indexManager = $indexManager;
         $this->dataHasher = $dataHasher;
@@ -91,6 +90,7 @@ class GenericTableSyncer
                 'target' => $config->targetLiveTableName
             ]);
             throw new TableSyncerException('Sync failed: ' . $e->getMessage(), 0, $e);
+        }
     }
 
     /**
@@ -108,76 +108,76 @@ class GenericTableSyncer
 
         $sourceConn = $config->sourceConnection;
         $targetConn = $config->targetConnection;
-        
+
         $sourceTable = $sourceConn->quoteIdentifier($config->sourceTableName);
         $tempTable = $targetConn->quoteIdentifier($config->targetTempTableName);
-        
+
         // Build column lists
         $sourceColumns = array_merge(
             array_keys($config->getPrimaryKeyColumnMap()),
             array_keys($config->getDataColumnMapping())
         );
-        
+
         $targetColumns = array_merge(
             array_values($config->getPrimaryKeyColumnMap()),
             array_values($config->getDataColumnMapping())
         );
-        
+
         $quotedSourceColumns = array_map(fn($col) => $sourceConn->quoteIdentifier($col), $sourceColumns);
         $quotedTargetColumns = array_map(fn($col) => $targetConn->quoteIdentifier($col), $targetColumns);
-        
+
         // Get source column types for proper parameter binding
         $sourceColumnTypes = $this->schemaManager->getSourceColumnTypes($config);
-        
+
         // Get data from source table
         $stmt = $sourceConn->prepare("SELECT " . implode(", ", $quotedSourceColumns) . " FROM {$sourceTable}");
         $result = $stmt->executeQuery();
-        
+
         // Prepare INSERT statement for temp table
         $placeholders = array_map(fn() => '?', $targetColumns);
-        $insertSql = "INSERT INTO {$tempTable} (" . implode(", ", $quotedTargetColumns) . ") VALUES (" . implode(", ", $placeholders) . ")";        
+        $insertSql = "INSERT INTO {$tempTable} (" . implode(", ", $quotedTargetColumns) . ") VALUES (" . implode(", ", $placeholders) . ")";
         $insertStmt = $targetConn->prepare($insertSql);
-        
+
         $this->logger->debug('Prepared insert statement', ['sql' => $insertSql]);
-        
+
         // Process rows and insert into temp table
         $rowCount = 0;
         while ($row = $result->fetchAssociative()) {
             // Ensure datetime values in the row using configured placeholder
             $row = $this->ensureDatetimeValues($config, $row);
-            
+
             // Map source column names to target column names and prepare values for binding
             $paramValues = [];
             $paramTypes = [];
-            
+
             // Process primary key columns
             foreach ($config->getPrimaryKeyColumnMap() as $sourceCol => $targetCol) {
                 $paramValues[] = $row[$sourceCol] ?? null;
                 // Use schema type info when available, fall back to runtime type detection
-                $paramTypes[] = isset($sourceColumnTypes[$sourceCol]) ? 
-                    $this->dbalTypeToParameterType($sourceColumnTypes[$sourceCol]) : 
+                $paramTypes[] = isset($sourceColumnTypes[$sourceCol]) ?
+                    $this->dbalTypeToParameterType($sourceColumnTypes[$sourceCol]) :
                     $this->getDbalParamType($sourceCol, $row[$sourceCol] ?? null);
             }
-            
+
             // Process data columns
             foreach ($config->getDataColumnMapping() as $sourceCol => $targetCol) {
                 $paramValues[] = $row[$sourceCol] ?? null;
                 // Use schema type info when available, fall back to runtime type detection
-                $paramTypes[] = isset($sourceColumnTypes[$sourceCol]) ? 
-                    $this->dbalTypeToParameterType($sourceColumnTypes[$sourceCol]) : 
+                $paramTypes[] = isset($sourceColumnTypes[$sourceCol]) ?
+                    $this->dbalTypeToParameterType($sourceColumnTypes[$sourceCol]) :
                     $this->getDbalParamType($sourceCol, $row[$sourceCol] ?? null);
             }
-            
+
             // Execute insert with bound parameters
             $insertStmt->executeStatement($paramValues, $paramTypes);
             $rowCount++;
-            
+
             // Log progress periodically
             if ($rowCount % 1000 === 0) {
                 $this->logger->debug("Processed {$rowCount} rows so far");
             }
         }
-        
+
         $this->logger->info("Loaded {$rowCount} rows from source to temp table");
     }
 
@@ -206,18 +206,18 @@ class GenericTableSyncer
 
         // --- A. Check if the live table is empty ---
         $count = $targetConn->fetchOne("SELECT COUNT(*) FROM {$liveTable}");
-        
+
         if ((int)$count === 0) {
             // If live table is empty, do a direct insert of all rows from temp
             $this->logger->info('Live table is empty, doing initial import');
-            
+
             $colsToInsertLive = array_merge(
                 $config->getTargetPrimaryKeyColumns(),
                 $config->getTargetDataColumns(),
                 [$meta->contentHash, $meta->createdAt, $meta->batchRevision]
             );
             $quotedColsToInsertLive = array_map(fn($c) => $targetConn->quoteIdentifier($c), $colsToInsertLive);
-            
+
             $colsToSelectTemp = array_merge(
                 $config->getTargetPrimaryKeyColumns(), // Assumes names are same in temp
                 $config->getTargetDataColumns(),
@@ -229,7 +229,7 @@ class GenericTableSyncer
             $sqlInitialInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLive) . ") "
                 . "SELECT " . implode(', ', $quotedColsToSelectTemp) . ", ? " // ? for batch_revision
                 . "FROM {$tempTable}";
-            
+
             $this->logger->debug('Executing initial insert SQL', ['sql' => $sqlInitialInsert]);
             $report->initialInsertCount = $targetConn->executeStatement($sqlInitialInsert, [$currentBatchRevisionId]);
             $report->addLogMessage("Initial import: {$report->initialInsertCount} rows inserted.");
@@ -262,7 +262,7 @@ class GenericTableSyncer
             INNER JOIN {$tempTable} ON {$joinConditionStr}
             SET " . implode(', ', $setClausesForUpdate) . "
             WHERE {$liveTable}.{$contentHashCol} <> {$tempTable}.{$contentHashCol}";
-        
+
         $this->logger->debug('Executing update SQL', ['sql' => $sqlUpdate]);
         $report->updatedCount = $targetConn->executeStatement($sqlUpdate, [$currentBatchRevisionId]);
         $report->addLogMessage("Rows updated due to hash mismatch: {$report->updatedCount}.");
@@ -272,42 +272,42 @@ class GenericTableSyncer
             // (rows in live that are NOT in temp table - implies temp table is complete desired state)
             $targetPkColumns = $config->getTargetPrimaryKeyColumns();
             $deletePkColForNullCheck = $targetConn->quoteIdentifier($targetPkColumns[0]); // Use first PK col for NULL check
-            
+
             // MySQL-specific DELETE with JOIN syntax
             $sqlDelete = "DELETE {$liveTable} FROM {$liveTable} "
                 . "LEFT JOIN {$tempTable} ON {$joinConditionStr}
                 WHERE {$tempTable}.{$deletePkColForNullCheck} IS NULL";
-            
+
             $this->logger->debug('Executing delete SQL', ['sql' => $sqlDelete]);
             $report->deletedCount = $targetConn->executeStatement($sqlDelete);
-        $report->addLogMessage("Rows deleted from live (not in source/temp): {$report->deletedCount}.");
+            $report->addLogMessage("Rows deleted from live (not in source/temp): {$report->deletedCount}.");
 
-        // --- D. Handle Inserts ---
-        // (rows in temp that are not in live table)
-        $colsToInsertLive = array_merge(
-            $config->getTargetPrimaryKeyColumns(),
-            $config->getTargetDataColumns(),
-            [$meta->contentHash, $meta->createdAt, $meta->batchRevision]
-        );
-        $quotedColsToInsertLive = array_map(fn($c) => $targetConn->quoteIdentifier($c), $colsToInsertLive);
+            // --- D. Handle Inserts ---
+            // (rows in temp that are not in live table)
+            $colsToInsertLive = array_merge(
+                $config->getTargetPrimaryKeyColumns(),
+                $config->getTargetDataColumns(),
+                [$meta->contentHash, $meta->createdAt, $meta->batchRevision]
+            );
+            $quotedColsToInsertLive = array_map(fn($c) => $targetConn->quoteIdentifier($c), $colsToInsertLive);
 
-        $colsToSelectTemp = array_merge(
-            $config->getTargetPrimaryKeyColumns(),
-            $config->getTargetDataColumns(),
-            [$meta->contentHash, $meta->createdAt]
-        );
-        $quotedColsToSelectTemp = array_map(fn($c) => $tempTable . "." . $targetConn->quoteIdentifier($c), $colsToSelectTemp);
+            $colsToSelectTemp = array_merge(
+                $config->getTargetPrimaryKeyColumns(),
+                $config->getTargetDataColumns(),
+                [$meta->contentHash, $meta->createdAt]
+            );
+            $quotedColsToSelectTemp = array_map(fn($c) => $tempTable . "." . $targetConn->quoteIdentifier($c), $colsToSelectTemp);
 
-        $insertPkColForNullCheck = $targetConn->quoteIdentifier($targetPkColumns[0]);
-        $sqlInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLive) . ") "
-            . "SELECT " . implode(', ', $quotedColsToSelectTemp) . ", ? " // ? for batch_revision
-            . "FROM {$tempTable}
-            LEFT JOIN {$liveTable} ON {$joinConditionStr}
-            WHERE {$liveTable}.{$insertPkColForNullCheck} IS NULL";
-        
-        $this->logger->debug('Executing insert SQL', ['sql' => $sqlInsert]);
-        $report->insertedCount = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId]);
-        $report->addLogMessage("New rows inserted into live: {$report->insertedCount}.");
+            $insertPkColForNullCheck = $targetConn->quoteIdentifier($targetPkColumns[0]);
+            $sqlInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLive) . ") "
+                . "SELECT " . implode(', ', $quotedColsToSelectTemp) . ", ? " // ? for batch_revision
+                . "FROM {$tempTable}
+                LEFT JOIN {$liveTable} ON {$joinConditionStr}
+                WHERE {$liveTable}.{$insertPkColForNullCheck} IS NULL";
+
+            $this->logger->debug('Executing insert SQL', ['sql' => $sqlInsert]);
+            $report->insertedCount = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId]);
+            $report->addLogMessage("New rows inserted into live: {$report->insertedCount}.");
         } catch (\Throwable $e) {
             $this->logger->error("Error during temp to live synchronization: {$e->getMessage()}", ['exception' => $e]);
             throw new TableSyncerException("Synchronization from temp to live failed: " . $e->getMessage(), 0, $e);
@@ -368,27 +368,27 @@ class GenericTableSyncer
         if ($value === null) {
             return ParameterType::NULL;
         }
-        
+
         if (is_int($value)) {
             return ParameterType::INTEGER;
         }
-        
+
         if (is_bool($value)) {
             return ParameterType::BOOLEAN;
         }
-        
+
         if (is_float($value)) {
             return ParameterType::STRING; // No specific float type in DBAL ParameterType
         }
-        
+
         if ($value instanceof \DateTimeInterface) {
             return ParameterType::STRING;
         }
-        
+
         // Default
         return ParameterType::STRING;
     }
-    
+
     /**
      * Converts a DBAL Type to a DBAL ParameterType.
      *
@@ -402,14 +402,14 @@ class GenericTableSyncer
             case Types::BIGINT:
             case Types::SMALLINT:
                 return ParameterType::INTEGER;
-                
+
             case Types::BOOLEAN:
                 return ParameterType::BOOLEAN;
-                
+
             case Types::BLOB:
             case Types::BINARY:
                 return ParameterType::BINARY;
-                
+
             // All other types (including dates, strings, decimals, etc.) use STRING parameter type
             default:
                 return ParameterType::STRING;
@@ -419,10 +419,10 @@ class GenericTableSyncer
     /**
      * Checks if a value is empty or invalid for a date column.
      *
-     * @param string|DateTimeInterface $val
+     * @param string|\DateTimeInterface $val
      * @return bool
      */
-    public function isDateEmptyOrInvalid($val): bool
+    protected function isDateEmptyOrInvalid($val): bool
     {
         // Convert DateTimeInterface to string if needed
         if ($val instanceof \DateTimeInterface) {

@@ -8,33 +8,36 @@ namespace TopdataSoftwareGmbh\TableSyncer\DTO;
  */
 class SyncReportDTO
 {
-    public int $numInserts;
-    public int $numUpdates;
-    public int $numDeletes;
+    public int $insertedCount = 0;
+    public int $updatedCount = 0;
+    public int $deletedCount = 0;
+    public int $initialInsertCount = 0;
     private array $logMessages = [];
 
     /**
      * Constructor with parameters for the number of inserts, updates, and deletes.
      *
-     * @param int $numInserts
-     * @param int $numUpdates
-     * @param int $numDeletes
+     * @param int $insertedCount
+     * @param int $updatedCount
+     * @param int $deletedCount
+     * @param int $initialInsertCount
      */
-    public function __construct(int $numInserts = 0, int $numUpdates = 0, int $numDeletes = 0)
+    public function __construct(int $insertedCount = 0, int $updatedCount = 0, int $deletedCount = 0, int $initialInsertCount = 0)
     {
-        $this->numInserts = $numInserts;
-        $this->numUpdates = $numUpdates;
-        $this->numDeletes = $numDeletes;
+        $this->insertedCount = $insertedCount;
+        $this->updatedCount = $updatedCount;
+        $this->deletedCount = $deletedCount;
+        $this->initialInsertCount = $initialInsertCount;
     }
 
     /**
      * Add a log message to the report.
      *
-     * @param string $level
-     * @param string $message
-     * @param array $context
+     * @param string $message The log message
+     * @param string $level Optional log level (default: 'info')
+     * @param array $context Optional context data
      */
-    public function addLogMessage(string $level, string $message, array $context = []): void
+    public function addLogMessage(string $message, string $level = 'info', array $context = []): void
     {
         $this->logMessages[] = [
             'level' => $level,

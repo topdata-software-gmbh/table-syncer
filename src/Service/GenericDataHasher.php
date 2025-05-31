@@ -31,14 +31,14 @@ class GenericDataHasher
         $targetConn = $config->targetConnection;
         $tempTableName = $targetConn->quoteIdentifier($config->targetTempTableName);
         $contentHashColumn = $targetConn->quoteIdentifier($config->metadataColumns->contentHash);
-        
+
         // Get target columns for content hash
         $hashSourceColumns = $config->getTargetColumnsForContentHash();
         if (empty($hashSourceColumns)) {
             $this->logger->warning('No columns specified for content hash calculation. Skipping hash generation.');
             return 0;
         }
-        
+
         $this->logger->debug('Generating content hashes from columns', [
             'columns' => implode(', ', $hashSourceColumns)
         ]);
@@ -48,16 +48,16 @@ class GenericDataHasher
         $concatParts = [];
         foreach ($hashSourceColumns as $column) {
             $quotedCol = $targetConn->quoteIdentifier($column);
-            $concatParts[] = "COALESCE(CAST({$quotedCol} AS CHAR), '')"; 
+            $concatParts[] = "COALESCE(CAST({$quotedCol} AS CHAR), '')";
         }
-        
+
         $columnList = implode(', ', $concatParts);
-        
+
         // Construct the final hash query with SHA2 (SHA-256)
         $hashQuery = "UPDATE {$tempTableName} SET {$contentHashColumn} = SHA2(CONCAT({$columnList}), 256)";
-        
+
         $this->logger->debug('Executing hash update query', ['query' => $hashQuery]);
-        
+
         // Execute the query and get number of affected rows
         $result = $targetConn->executeStatement($hashQuery);
 

@@ -37,7 +37,7 @@ class GenericIndexManager
         $pkIndexName = 'idx_' . $tempTableName . '_pk';
         $this->addIndexIfNotExists($connection, $tempTableName, $pkColumns, false, $pkIndexName);
         $this->logger->debug('Added PK index to temp table', ['columns' => implode(', ', $pkColumns)]);
-        
+
         // Add index for content hash column on temp table
         if ($metaColumns->contentHash) {
             $hashIndexName = 'idx_' . $tempTableName . '_content_hash';
@@ -70,7 +70,7 @@ class GenericIndexManager
             $this->addIndexIfNotExists($connection, $liveTableName, [$metaColumns->contentHash], false, $hashIndexName);
             $this->logger->debug('Added content hash index to live table');
         }
-        
+
         // Add unique index for business PKs on live table (optional but recommended)
         // Only if PKs are not already the primary key of the table
         $pkColumns = $config->getTargetPrimaryKeyColumns();
@@ -110,7 +110,7 @@ class GenericIndexManager
                 $indexName = substr($indexName, 0, 60) . '_' . substr(md5($indexName), 0, 3);
             }
         }
-        
+
         $this->logger->debug(
             'Adding index if not exists',
             ['table' => $tableName, 'columns' => implode(', ', $columns), 'indexName' => $indexName]
@@ -119,21 +119,21 @@ class GenericIndexManager
         // Check if index already exists
         $schemaManager = $connection->createSchemaManager();
         $indexes = $schemaManager->listTableIndexes($tableName);
-        
+
         if (isset($indexes[$indexName])) {
             $this->logger->debug('Index already exists, skipping', ['indexName' => $indexName]);
             return;
         }
-        
+
         // Quote table and column names
         $quotedTableName = $connection->quoteIdentifier($tableName);
         $quotedColumns = array_map(fn($col) => $connection->quoteIdentifier($col), $columns);
         $quotedColumnList = implode(', ', $quotedColumns);
-        
+
         // Generate SQL for index creation
         $indexType = $isUnique ? 'UNIQUE' : '';
         $sql = "CREATE {$indexType} INDEX {$connection->quoteIdentifier($indexName)} ON {$quotedTableName} ({$quotedColumnList})";
-        
+
         // Execute the query
         $this->logger->debug('Creating index with SQL', ['sql' => $sql]);
         $connection->executeStatement($sql);

@@ -56,7 +56,7 @@ class GenericSchemaManager
             // Get type from source column
             $sourceTypes = $this->getSourceColumnTypes($config);
             $type = $sourceTypes[$config->getMappedSourceColumnName($columnName)] ?? 'string';
-            
+
             $columnDefinitions[$columnName] = [
                 'type' => $type,
                 'notnull' => true,
@@ -69,7 +69,7 @@ class GenericSchemaManager
             // Get type from source column
             $sourceTypes = $this->getSourceColumnTypes($config);
             $type = $sourceTypes[$config->getMappedSourceColumnName($columnName)] ?? 'string';
-            
+
             $columnDefinitions[$columnName] = [
                 'type' => $type,
                 'notnull' => false,
@@ -120,7 +120,7 @@ class GenericSchemaManager
             // Get type from source column
             $sourceTypes = $this->getSourceColumnTypes($config);
             $type = $sourceTypes[$config->getMappedSourceColumnName($columnName)] ?? 'string';
-            
+
             $columnDefinitions[$columnName] = [
                 'type' => $type,
                 'notnull' => true,
@@ -133,7 +133,7 @@ class GenericSchemaManager
             // Get type from source column
             $sourceTypes = $this->getSourceColumnTypes($config);
             $type = $sourceTypes[$config->getMappedSourceColumnName($columnName)] ?? 'string';
-            
+
             $columnDefinitions[$columnName] = [
                 'type' => $type,
                 'notnull' => false,
@@ -271,7 +271,7 @@ class GenericSchemaManager
         $primaryKeys = [];
         foreach ($columns as $columnName => $columnDef) {
             $options = [];
-            
+
             // Extract options
             if (isset($columnDef['length'])) {
                 $options['length'] = $columnDef['length'];
@@ -282,17 +282,17 @@ class GenericSchemaManager
             if (isset($columnDef['autoincrement']) && $columnDef['autoincrement']) {
                 $options['autoincrement'] = true;
             }
-            
+
             // Create column
             $type = Type::getType($columnDef['type']);
             $column = new Column($columnName, $type, $options);
-            
+
             // Set nullable
             $column->setNotnull($columnDef['notnull'] ?? false);
-            
+
             // Add to table
             $table->addColumn($column);
-            
+
             // Track primary keys
             if (isset($columnDef['primary']) && $columnDef['primary']) {
                 $primaryKeys[] = $columnName;
@@ -337,22 +337,22 @@ class GenericSchemaManager
         $sourceConn = $config->sourceConnection;
         $schemaManager = $sourceConn->createSchemaManager();
         $sourceTableName = $config->sourceTableName;
-        
+
         $this->logger->debug('Introspecting source table', ['table' => $sourceTableName]);
         $tableDetails = $schemaManager->introspectTable($sourceTableName);
         $columns = $tableDetails->getColumns();
-        
+
         $columnTypes = [];
         foreach ($columns as $column) {
             $columnName = $column->getName();
             $type = $this->getDbalTypeNameFromTypeObject($column->getType());
             $columnTypes[$columnName] = $type;
         }
-        
+
         // Cache the results
         $this->sourceTableDetailsCache = $columnTypes;
         $this->cachedSourceTableName = $sourceTableName;
-        
+
         return $columnTypes;
     }
 
@@ -383,7 +383,7 @@ class GenericSchemaManager
         ?int $numericScale
     ): string {
         $infoSchemaType = strtolower($infoSchemaType);
-        
+
         switch ($infoSchemaType) {
             // String types
             case 'char':
@@ -394,7 +394,7 @@ class GenericSchemaManager
             case 'mediumtext':
             case 'longtext':
                 return 'text';
-                
+
             // Numeric types
             case 'tinyint':
                 // tinyint(1) is typically used as boolean in MySQL
@@ -410,7 +410,7 @@ class GenericSchemaManager
                 return 'integer';
             case 'bigint':
                 return 'bigint';
-                
+
             // Decimal types
             case 'decimal':
             case 'numeric':
@@ -420,7 +420,7 @@ class GenericSchemaManager
             case 'double':
             case 'double precision':
                 return 'float';
-                
+
             // Date and time types
             case 'date':
                 return 'date';
@@ -431,7 +431,7 @@ class GenericSchemaManager
                 return 'time';
             case 'year':
                 return 'smallint';
-                
+
             // Binary types
             case 'binary':
             case 'varbinary':
@@ -441,20 +441,20 @@ class GenericSchemaManager
             case 'mediumblob':
             case 'longblob':
                 return 'blob';
-                
+
             // Enum type
             case 'enum':
             case 'set':
                 return 'string';
-                
+
             // JSON type (MySQL 5.7+)
             case 'json':
                 return 'json';
-                
+
             // Default fallback
             default:
                 $this->logger->warning('Unknown data type, defaulting to string', [
-                    'type' => $infoSchemaType, 
+                    'type' => $infoSchemaType,
                     'charMaxLength' => $charMaxLength,
                     'numericPrecision' => $numericPrecision,
                     'numericScale' => $numericScale
