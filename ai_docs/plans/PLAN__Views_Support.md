@@ -54,30 +54,10 @@
                 } else {
                     $this->logger->debug("Source '{$sourceName}' not found as a TABLE, checking if it's a VIEW.");
                     // 2. Check if it's a view
-                    if (method_exists($schemaManager, 'viewsExist')) { // DBAL 3.2.0+
-                        if ($schemaManager->viewsExist([$sourceName])) {
-                            $sourceTypeForLogging = "VIEW";
-                            $this->logger->info("Source '{$sourceName}' identified as a {$sourceTypeForLogging} (using viewsExist).");
-                            $sourceIdentifierExistsAndIsIntrospectable = true;
-                        }
-                    } else { // Fallback for DBAL 3.0.x, 3.1.x
-                        try {
-                            $views = $schemaManager->listViews();
-                            foreach ($views as $view) {
-                                if ($view->getName() === $sourceName ||
-                                    $view->getQuotedName($sourceConnection->getDatabasePlatform()) === $sourceConnection->quoteIdentifier($sourceName)) {
-                                    $sourceTypeForLogging = "VIEW";
-                                    $this->logger->info("Source '{$sourceName}' identified as a {$sourceTypeForLogging} (by listing views).");
-                                    $sourceIdentifierExistsAndIsIntrospectable = true;
-                                    break;
-                                }
-                            }
-                        } catch (\Doctrine\DBAL\Exception $e) {
-                            $this->logger->warning(
-                                "Could not list views to check for '{$sourceName}'. Error: " . $e->getMessage(),
-                                ['source' => $sourceName, 'exception_class' => get_class($e)]
-                            );
-                        }
+                    if ($schemaManager->viewsExist([$sourceName])) {
+                        $sourceTypeForLogging = "VIEW";
+                        $this->logger->info("Source '{$sourceName}' identified as a {$sourceTypeForLogging} (using viewsExist).");
+                        $sourceIdentifierExistsAndIsIntrospectable = true;
                     }
                 }
 

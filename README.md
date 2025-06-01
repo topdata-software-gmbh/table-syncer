@@ -4,7 +4,7 @@ A generic PHP library for synchronizing table data between two databases using D
 
 ## Features
 
-- Database table synchronization between any two databases supported by Doctrine DBAL
+- Database table and view synchronization between any two databases supported by Doctrine DBAL
 - Column name mapping to handle differences in table schemas
 - Staging table approach for efficient data synchronization
 - PSR-3 logging support for monitoring and debugging
@@ -16,7 +16,7 @@ A generic PHP library for synchronizing table data between two databases using D
 ## Requirements
 
 - PHP 8.0 or higher
-- Doctrine DBAL 3.0 or higher
+- Doctrine DBAL 4.0 or higher
 - PSR-3 compatible logger implementation
 
 ## Installation

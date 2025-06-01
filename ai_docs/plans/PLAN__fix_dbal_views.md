@@ -1,11 +1,10 @@
 ## Plan for DBAL 4.x Only Update and `SourceIntrospector` Fix
 
 **Objective:**
-1.  Modify `SourceIntrospector` to correctly identify views for logging purposes using DBAL 4.x APIs only.
-2.  Remove any DBAL 3.x compatibility code, specifically `method_exists` checks related to `viewsExist`.
-3.  Update `composer.json` to strictly require `doctrine/dbal: ^4.0`.
-4.  Update `README.md` to reflect DBAL 4.x as the minimum requirement.
-5.  Review and potentially enhance unit tests for `SourceIntrospector`.
+1.  Modify `SourceIntrospector` to correctly identify views for logging purposes using DBAL 4.x APIs.
+2.  Update `composer.json` to strictly require `doctrine/dbal: ^4.0`.
+3.  Update `README.md` to reflect DBAL 4.x as the minimum requirement.
+4.  Review and potentially enhance unit tests for `SourceIntrospector`.
 
 ---
 
@@ -15,8 +14,6 @@
 2.  **Modify `introspectSource` method:**
     *   The primary goal here is to determine `sourceTypeForLogging` correctly.
     *   Since `introspectTable()` works for views in DBAL, the main differentiation is for logging.
-    *   Remove the `elseif (method_exists($schemaManager, 'viewsExist') && $schemaManager->viewsExist([$sourceName]))` block.
-    *   Remove the `elseif (!method_exists($schemaManager, 'viewsExist'))` block and its contents.
     *   The logic should be:
         *   Attempt `introspectTable()`.
         *   If successful:
@@ -188,7 +185,6 @@
 
 1.  **Code Review:** Have the changes reviewed, focusing on:
     *   Correctness of the DBAL 4.x API usage in `SourceIntrospector`.
-    *   Removal of all DBAL 3.x specific compatibility code.
     *   Robustness of name comparison using `Doctrine\DBAL\Schema\Identifier`.
     *   Clarity of logging messages.
 2.  **QA:** Test the application flow that utilizes the `TableSyncer` library to ensure no regressions and that view synchronization works as expected.

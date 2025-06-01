@@ -28,7 +28,7 @@
 *   [x] **`SourceIntrospector.php` - `introspectSource` Method:**
     *   Signature is `public function introspectSource(Connection $sourceConnection, string $sourceName): array`.
     *   Contains logic to check for table existence using `$schemaManager->tablesExist()`.
-    *   Contains logic to check for view existence using `method_exists($schemaManager, 'viewsExist')` and `$schemaManager->viewsExist()` OR fallback to `$schemaManager->listViews()`.
+    *   Contains logic to check for view existence using `$schemaManager->viewsExist()`.
     *   Contains logic for a final direct introspection attempt using `$schemaManager->introspectTable()` wrapped in a try-catch for `TableNotFoundException`.
     *   Throws `ConfigurationException` if source cannot be identified or introspected.
     *   Calls `extractColumnDefinitions` upon successful identification and introspection.

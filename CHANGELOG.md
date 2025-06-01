@@ -6,6 +6,9 @@
 - New configuration options in TableSyncConfigDTO for enabling deletion logging
 - Automatic creation of deletion log table with appropriate schema
 - Enhanced SyncReportDTO with logged deletions count
+- Updated DBAL requirement to ^4.0 for improved view handling
+- Added support for database view synchronization
+- Refactored SourceIntrospector for better table/view differentiation
 - Comprehensive documentation for the deletion logging feature
 
 ## [1.0.1] - 2025-05-31
