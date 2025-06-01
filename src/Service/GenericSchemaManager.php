@@ -341,9 +341,14 @@ class GenericSchemaManager
                 'default' => $config->placeholderDatetime,
             ],
             [
-                'name'    => $meta->batchRevision,
+                'name'    => $meta->createdRevisionId,
                 'type'    => Types::INTEGER,
-                'notnull' => false,
+                'notnull' => true,
+            ],
+            [
+                'name'    => $meta->lastModifiedRevisionId,
+                'type'    => Types::INTEGER,
+                'notnull' => true,
             ],
         ];
     }

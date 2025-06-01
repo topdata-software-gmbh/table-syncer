@@ -65,7 +65,7 @@ class TempToLiveSynchronizer
                 $colsToInsertLive = array_unique(array_merge(
                     $config->getTargetPrimaryKeyColumns(),
                     $config->getTargetDataColumns(),
-                    [$meta->contentHash, $meta->createdAt, $meta->batchRevision]
+                    [$meta->contentHash, $meta->createdAt, $meta->createdRevisionId, $meta->lastModifiedRevisionId]
                 ));
                 $quotedColsToInsertLive = array_map(fn($c) => $targetConn->quoteIdentifier($c), $colsToInsertLive);
 
@@ -85,7 +85,7 @@ class TempToLiveSynchronizer
                     // It's better to let it flow to the commit/rollback at the end of the try block.
                     // Or, if this is the ONLY operation, commit here and then return.
                     // For now, let it flow. If it's an actual problem (e.g. no columns), an exception should have been thrown earlier or it's a config issue.
-                } elseif (count($quotedColsToSelectTemp) + 1 !== count($quotedColsToInsertLive)) { // Note: elseif to prevent re-evaluation if first was true
+                } elseif (count($quotedColsToSelectTemp) + 2 !== count($quotedColsToInsertLive)) { // Note: elseif to prevent re-evaluation if first was true
                     $this->logger->error("Column count mismatch for initial insert.", [
                         'select_cols' => $quotedColsToSelectTemp,
                         'insert_cols' => $quotedColsToInsertLive,
@@ -93,11 +93,11 @@ class TempToLiveSynchronizer
                     throw new TableSyncerException("Configuration error: Column count mismatch for initial insert into live table.");
                 } else { // Only execute if column counts are valid
                     $sqlInitialInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLive) . ") "
-                        . "SELECT " . implode(', ', $quotedColsToSelectTemp) . ", ? " // ? for batch_revision
+                        . "SELECT " . implode(', ', $quotedColsToSelectTemp) . ", ?, ? " // Two placeholders for createdRevisionId and lastModifiedRevisionId
                         . "FROM {$tempTable}";
 
                     $this->logger->debug('Executing initial insert SQL for live table', ['sql' => $sqlInitialInsert]);
-                    $affectedRows = $targetConn->executeStatement($sqlInitialInsert, [$currentBatchRevisionId]);
+                    $affectedRows = $targetConn->executeStatement($sqlInitialInsert, [$currentBatchRevisionId, $currentBatchRevisionId]);
                     $report->initialInsertCount = (int)$affectedRows;
                     $report->addLogMessage("Initial import: {$report->initialInsertCount} rows inserted into '{$config->targetLiveTableName}'.");
                 }
@@ -131,7 +131,7 @@ class TempToLiveSynchronizer
                 $setClausesForUpdate[] = "{$liveTable}.{$qCol} = {$tempTable}.{$qCol}";
             }
             $setClausesForUpdate[] = "{$liveTable}." . $targetConn->quoteIdentifier($meta->updatedAt) . " = CURRENT_TIMESTAMP";
-            $setClausesForUpdate[] = "{$liveTable}." . $targetConn->quoteIdentifier($meta->batchRevision) . " = ?";
+            $setClausesForUpdate[] = "{$liveTable}." . $targetConn->quoteIdentifier($meta->lastModifiedRevisionId) . " = ?";
 
             if (empty($dataColsForUpdate)) { // Note: $dataColsForUpdate will include at least $meta->contentHash if configured
                 $this->logger->warning("No data columns configured for update beyond metadata. Only metadata (updatedAt, batchRevision, contentHash) will be updated on hash mismatch.");
@@ -226,7 +226,7 @@ class TempToLiveSynchronizer
             $colsToInsertLiveForNew = array_unique(array_merge( // Renamed to avoid conflict with initial import var
                 $config->getTargetPrimaryKeyColumns(),
                 $config->getTargetDataColumns(),
-                [$meta->contentHash, $meta->createdAt, $meta->batchRevision]
+                [$meta->contentHash, $meta->createdAt, $meta->createdRevisionId, $meta->lastModifiedRevisionId]
             ));
             $quotedColsToInsertLiveForNew = array_map(fn($c) => $targetConn->quoteIdentifier($c), $colsToInsertLiveForNew);
 
@@ -242,7 +242,7 @@ class TempToLiveSynchronizer
                     'select_cols_count' => count($quotedColsToSelectTempForNew),
                     'insert_cols_count' => count($quotedColsToInsertLiveForNew),
                 ]);
-            } elseif (count($quotedColsToSelectTempForNew) + 1 !== count($quotedColsToInsertLiveForNew)) {
+            } elseif (count($quotedColsToSelectTempForNew) + 2 !== count($quotedColsToInsertLiveForNew)) {
                 $this->logger->error("Column count mismatch for new inserts.", [
                     'select_cols' => $quotedColsToSelectTempForNew,
                     'insert_cols' => $quotedColsToInsertLiveForNew,
@@ -252,13 +252,13 @@ class TempToLiveSynchronizer
                 // Ensure the column for NULL check is from the LIVE table after the LEFT JOIN
                 $liveTablePkColForNullCheck = $liveTable . "." . $targetConn->quoteIdentifier($targetPkColumns[0]);
                 $sqlInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLiveForNew) . ") "
-                    . "SELECT " . implode(', ', $quotedColsToSelectTempForNew) . ", ? " // ? for batch_revision
+                    . "SELECT " . implode(', ', $quotedColsToSelectTempForNew) . ", ?, ? " // Two placeholders for createdRevisionId and lastModifiedRevisionId
                     . "FROM {$tempTable} "
                     . "LEFT JOIN {$liveTable} ON {$joinConditionStr} "
                     . "WHERE {$liveTablePkColForNullCheck} IS NULL";
 
                 $this->logger->debug('Executing insert SQL for new rows in live table', ['sql' => $sqlInsert]);
-                $affectedRowsInsert = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId]);
+                $affectedRowsInsert = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId, $currentBatchRevisionId]);
                 $report->insertedCount = (int)$affectedRowsInsert;
                 $report->addLogMessage("New rows inserted into '{$config->targetLiveTableName}': {$report->insertedCount}.");
             }
