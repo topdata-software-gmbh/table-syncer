@@ -31,7 +31,7 @@ class TempToLiveSynchronizer
      * @param int $currentBatchRevisionId The current batch revision ID.
      * @param SyncReportDTO $report The report to populate with synchronization results.
      * @return void
-     * @throws TableSyncerException
+     * @throws TableSyncerException|\Doctrine\DBAL\Exception
      */
     public function synchronize(TableSyncConfigDTO $config, int $currentBatchRevisionId, SyncReportDTO $report): void
     {
@@ -46,9 +46,8 @@ class TempToLiveSynchronizer
         $meta = $config->metadataColumns;
         $liveTable = $targetConn->quoteIdentifier($config->targetLiveTableName);
         $tempTable = $targetConn->quoteIdentifier($config->targetTempTableName);
-        
-        try {
 
+        try {
             // Start transaction if one is not already active
             if (!$targetConn->isTransactionActive()) {
                 $targetConn->beginTransaction();
@@ -58,150 +57,158 @@ class TempToLiveSynchronizer
 
             // --- A. Check if the live table is empty ---
             $countResult = $targetConn->fetchOne("SELECT COUNT(*) FROM {$liveTable}");
-        $countInt = is_numeric($countResult) ? (int)$countResult : 0;
+            $countInt = is_numeric($countResult) ? (int)$countResult : 0;
 
-        if ($countInt === 0) {
-            $this->logger->info("Live table '{$config->targetLiveTableName}' is empty, performing initial bulk import from temp table '{$config->targetTempTableName}'.");
+            if ($countInt === 0) {
+                $this->logger->info("Live table '{$config->targetLiveTableName}' is empty, performing initial bulk import from temp table '{$config->targetTempTableName}'.");
 
-            // Columns to insert into the live table: Mapped PKs, Mapped Data, Syncer's Hash, Syncer's CreatedAt (from temp), and new BatchRevision
-            $colsToInsertLive = array_unique(array_merge(
+                $colsToInsertLive = array_unique(array_merge(
+                    $config->getTargetPrimaryKeyColumns(),
+                    $config->getTargetDataColumns(),
+                    [$meta->contentHash, $meta->createdAt, $meta->batchRevision]
+                ));
+                $quotedColsToInsertLive = array_map(fn($c) => $targetConn->quoteIdentifier($c), $colsToInsertLive);
+
+                $colsToSelectTemp = array_unique(array_merge(
+                    $config->getTargetPrimaryKeyColumns(),
+                    $config->getTargetDataColumns(),
+                    [$meta->contentHash, $meta->createdAt]
+                ));
+                $quotedColsToSelectTemp = array_map(fn($c) => $tempTable . "." . $targetConn->quoteIdentifier($c), $colsToSelectTemp);
+
+                if (empty($quotedColsToSelectTemp) || empty($quotedColsToInsertLive)) {
+                    $this->logger->warning("Cannot perform initial insert: column list for SELECT or INSERT is empty.", [
+                        'select_cols_count' => count($quotedColsToSelectTemp),
+                        'insert_cols_count' => count($quotedColsToInsertLive),
+                    ]);
+                    // If we return here, we need to ensure the transaction is handled.
+                    // It's better to let it flow to the commit/rollback at the end of the try block.
+                    // Or, if this is the ONLY operation, commit here and then return.
+                    // For now, let it flow. If it's an actual problem (e.g. no columns), an exception should have been thrown earlier or it's a config issue.
+                } elseif (count($quotedColsToSelectTemp) + 1 !== count($quotedColsToInsertLive)) { // Note: elseif to prevent re-evaluation if first was true
+                    $this->logger->error("Column count mismatch for initial insert.", [
+                        'select_cols' => $quotedColsToSelectTemp,
+                        'insert_cols' => $quotedColsToInsertLive,
+                    ]);
+                    throw new TableSyncerException("Configuration error: Column count mismatch for initial insert into live table.");
+                } else { // Only execute if column counts are valid
+                    $sqlInitialInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLive) . ") "
+                        . "SELECT " . implode(', ', $quotedColsToSelectTemp) . ", ? " // ? for batch_revision
+                        . "FROM {$tempTable}";
+
+                    $this->logger->debug('Executing initial insert SQL for live table', ['sql' => $sqlInitialInsert]);
+                    $affectedRows = $targetConn->executeStatement($sqlInitialInsert, [$currentBatchRevisionId]);
+                    $report->initialInsertCount = (int)$affectedRows;
+                    $report->addLogMessage("Initial import: {$report->initialInsertCount} rows inserted into '{$config->targetLiveTableName}'.");
+                }
+                // After initial import, the subsequent standard sync logic (updates, deletes, inserts) is typically skipped for this run.
+                // So, we should commit if we started a transaction and then return.
+                if ($transactionStartedByThisMethod && $targetConn->isTransactionActive()) {
+                    $targetConn->commit();
+                    $this->logger->debug('Transaction committed within TempToLiveSynchronizer after initial import.');
+                }
+                return; // Exit after initial import
+            }
+
+            // --- Standard Sync Logic (Live table is not empty) ---
+            $joinConditions = [];
+            foreach ($config->getTargetPrimaryKeyColumns() as $keyCol) {
+                $quotedKeyCol = $targetConn->quoteIdentifier($keyCol);
+                $joinConditions[] = "{$liveTable}.{$quotedKeyCol} = {$tempTable}.{$quotedKeyCol}";
+            }
+            $joinConditionStr = implode(' AND ', $joinConditions);
+            if (empty($joinConditionStr)) {
+                $this->logger->error("Cannot synchronize: No primary key join conditions defined. Check TableSyncConfigDTO.primaryKeyColumnMap.");
+                throw new TableSyncerException("Configuration error: No primary key join conditions for synchronization.");
+            }
+            $this->logger->debug('Join condition for sync operations', ['condition' => $joinConditionStr]);
+
+            // --- B. Handle Updates ---
+            $setClausesForUpdate = [];
+            $dataColsForUpdate = array_unique(array_merge($config->getTargetDataColumns(), [$meta->contentHash]));
+            foreach ($dataColsForUpdate as $col) {
+                $qCol = $targetConn->quoteIdentifier($col);
+                $setClausesForUpdate[] = "{$liveTable}.{$qCol} = {$tempTable}.{$qCol}";
+            }
+            $setClausesForUpdate[] = "{$liveTable}." . $targetConn->quoteIdentifier($meta->updatedAt) . " = CURRENT_TIMESTAMP";
+            $setClausesForUpdate[] = "{$liveTable}." . $targetConn->quoteIdentifier($meta->batchRevision) . " = ?";
+
+            if (empty($dataColsForUpdate)) { // Note: $dataColsForUpdate will include at least $meta->contentHash if configured
+                $this->logger->warning("No data columns configured for update beyond metadata. Only metadata (updatedAt, batchRevision, contentHash) will be updated on hash mismatch.");
+            }
+
+            // FIX: Qualify ambiguous column in WHERE clause
+            $liveTableContentHashForWhere = $liveTable . "." . $targetConn->quoteIdentifier($meta->contentHash);
+            $tempTableContentHashForWhere = $tempTable . "." . $targetConn->quoteIdentifier($meta->contentHash);
+
+            $sqlUpdate = "UPDATE {$liveTable} "
+                . "INNER JOIN {$tempTable} ON {$joinConditionStr} "
+                . "SET " . implode(', ', $setClausesForUpdate) . " "
+                . "WHERE {$liveTableContentHashForWhere} <> {$tempTableContentHashForWhere}";
+
+            $this->logger->debug('Executing update SQL for live table', ['sql' => $sqlUpdate]);
+            $affectedRowsUpdate = $targetConn->executeStatement($sqlUpdate, [$currentBatchRevisionId]);
+            $report->updatedCount = (int)$affectedRowsUpdate;
+            $report->addLogMessage("Rows updated in '{$config->targetLiveTableName}' due to hash mismatch: {$report->updatedCount}.");
+
+            // --- C. Handle Deletes ---
+            $targetPkColumns = $config->getTargetPrimaryKeyColumns(); // This is already available
+            if (empty($targetPkColumns)) {
+                $this->logger->warning("Cannot perform deletes: No target primary key columns defined for LEFT JOIN NULL check. This implies a configuration issue if deletes are expected.");
+            } else {
+                // Ensure the column for NULL check is from the TEMP table after the LEFT JOIN
+                $tempTablePkColForNullCheck = $tempTable . "." . $targetConn->quoteIdentifier($targetPkColumns[0]);
+                $sqlDelete = "DELETE {$liveTable} FROM {$liveTable} " // MySQL specific syntax for aliasing in DELETE with JOIN
+                    . "LEFT JOIN {$tempTable} ON {$joinConditionStr} "
+                    . "WHERE {$tempTablePkColForNullCheck} IS NULL";
+
+                $this->logger->debug('Executing delete SQL for live table', ['sql' => $sqlDelete]);
+                $affectedRowsDelete = $targetConn->executeStatement($sqlDelete);
+                $report->deletedCount = (int)$affectedRowsDelete;
+                $report->addLogMessage("Rows deleted from '{$config->targetLiveTableName}' (not in source/temp): {$report->deletedCount}.");
+            }
+
+            // --- D. Handle Inserts ---
+            $colsToInsertLiveForNew = array_unique(array_merge( // Renamed to avoid conflict with initial import var
                 $config->getTargetPrimaryKeyColumns(),
                 $config->getTargetDataColumns(),
                 [$meta->contentHash, $meta->createdAt, $meta->batchRevision]
             ));
-            $quotedColsToInsertLive = array_map(fn($c) => $targetConn->quoteIdentifier($c), $colsToInsertLive);
+            $quotedColsToInsertLiveForNew = array_map(fn($c) => $targetConn->quoteIdentifier($c), $colsToInsertLiveForNew);
 
-            // Columns to select from the temp table: Mapped PKs, Mapped Data, Syncer's Hash, Syncer's CreatedAt
-            $colsToSelectTemp = array_unique(array_merge(
+            $colsToSelectTempForNew = array_unique(array_merge( // Renamed
                 $config->getTargetPrimaryKeyColumns(),
                 $config->getTargetDataColumns(),
                 [$meta->contentHash, $meta->createdAt]
             ));
-            $quotedColsToSelectTemp = array_map(fn($c) => $tempTable . "." . $targetConn->quoteIdentifier($c), $colsToSelectTemp);
+            $quotedColsToSelectTempForNew = array_map(fn($c) => $tempTable . "." . $targetConn->quoteIdentifier($c), $colsToSelectTempForNew);
 
-            if (empty($quotedColsToSelectTemp) || empty($quotedColsToInsertLive)) {
-                $this->logger->warning("Cannot perform initial insert: column list for SELECT or INSERT is empty.", [
-                    'select_cols_count' => count($quotedColsToSelectTemp),
-                    'insert_cols_count' => count($quotedColsToInsertLive),
+            if (empty($quotedColsToSelectTempForNew) || empty($quotedColsToInsertLiveForNew)) {
+                $this->logger->warning("Cannot perform new inserts: column list for SELECT or INSERT is empty.", [
+                    'select_cols_count' => count($quotedColsToSelectTempForNew),
+                    'insert_cols_count' => count($quotedColsToInsertLiveForNew),
                 ]);
-                return;
-            }
-            if (count($quotedColsToSelectTemp) + 1 !== count($quotedColsToInsertLive)) {
-                $this->logger->error("Column count mismatch for initial insert.", [
-                    'select_cols' => $quotedColsToSelectTemp,
-                    'insert_cols' => $quotedColsToInsertLive,
+            } elseif (count($quotedColsToSelectTempForNew) + 1 !== count($quotedColsToInsertLiveForNew)) {
+                $this->logger->error("Column count mismatch for new inserts.", [
+                    'select_cols' => $quotedColsToSelectTempForNew,
+                    'insert_cols' => $quotedColsToInsertLiveForNew,
                 ]);
-                throw new TableSyncerException("Configuration error: Column count mismatch for initial insert into live table.");
+                throw new TableSyncerException("Configuration error: Column count mismatch for new inserts into live table.");
+            } else {
+                // Ensure the column for NULL check is from the LIVE table after the LEFT JOIN
+                $liveTablePkColForNullCheck = $liveTable . "." . $targetConn->quoteIdentifier($targetPkColumns[0]);
+                $sqlInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLiveForNew) . ") "
+                    . "SELECT " . implode(', ', $quotedColsToSelectTempForNew) . ", ? " // ? for batch_revision
+                    . "FROM {$tempTable} "
+                    . "LEFT JOIN {$liveTable} ON {$joinConditionStr} "
+                    . "WHERE {$liveTablePkColForNullCheck} IS NULL";
+
+                $this->logger->debug('Executing insert SQL for new rows in live table', ['sql' => $sqlInsert]);
+                $affectedRowsInsert = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId]);
+                $report->insertedCount = (int)$affectedRowsInsert;
+                $report->addLogMessage("New rows inserted into '{$config->targetLiveTableName}': {$report->insertedCount}.");
             }
 
-            $sqlInitialInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLive) . ") "
-                . "SELECT " . implode(', ', $quotedColsToSelectTemp) . ", ? " // ? for batch_revision
-                . "FROM {$tempTable}";
-
-            $this->logger->debug('Executing initial insert SQL for live table', ['sql' => $sqlInitialInsert]);
-            $affectedRows = $targetConn->executeStatement($sqlInitialInsert, [$currentBatchRevisionId]);
-            $report->initialInsertCount = (int)$affectedRows;
-            $report->addLogMessage("Initial import: {$report->initialInsertCount} rows inserted into '{$config->targetLiveTableName}'.");
-            return;
-        }
-
-        // --- Standard Sync Logic (Live table is not empty) ---
-        $joinConditions = [];
-        foreach ($config->getTargetPrimaryKeyColumns() as $keyCol) {
-            $quotedKeyCol = $targetConn->quoteIdentifier($keyCol);
-            $joinConditions[] = "{$liveTable}.{$quotedKeyCol} = {$tempTable}.{$quotedKeyCol}";
-        }
-        $joinConditionStr = implode(' AND ', $joinConditions);
-        if (empty($joinConditionStr)) {
-            $this->logger->error("Cannot synchronize: No primary key join conditions defined. Check TableSyncConfigDTO.primaryKeyColumnMap.");
-            throw new TableSyncerException("Configuration error: No primary key join conditions for synchronization.");
-        }
-        $this->logger->debug('Join condition for sync operations', ['condition' => $joinConditionStr]);
-
-        // --- B. Handle Updates ---
-        $setClausesForUpdate = [];
-        // Data columns to update + contentHash
-        $dataColsForUpdate = array_unique(array_merge($config->getTargetDataColumns(), [$meta->contentHash]));
-        foreach ($dataColsForUpdate as $col) {
-            $qCol = $targetConn->quoteIdentifier($col);
-            $setClausesForUpdate[] = "{$liveTable}.{$qCol} = {$tempTable}.{$qCol}";
-        }
-        $setClausesForUpdate[] = "{$liveTable}." . $targetConn->quoteIdentifier($meta->updatedAt) . " = CURRENT_TIMESTAMP";
-        $setClausesForUpdate[] = "{$liveTable}." . $targetConn->quoteIdentifier($meta->batchRevision) . " = ?";
-
-        if (empty($dataColsForUpdate)) {
-            $this->logger->warning("No data columns configured for update. Only metadata (updatedAt, batchRevision) will be updated on hash mismatch.");
-        }
-
-        $contentHashLiveCol = $targetConn->quoteIdentifier($meta->contentHash);
-        $contentHashTempCol = $tempTable . "." . $targetConn->quoteIdentifier($meta->contentHash);
-
-        $sqlUpdate = "UPDATE {$liveTable} "
-            . "INNER JOIN {$tempTable} ON {$joinConditionStr} "
-            . "SET " . implode(', ', $setClausesForUpdate) . " "
-            . "WHERE {$contentHashLiveCol} <> {$contentHashTempCol}";
-
-        $this->logger->debug('Executing update SQL for live table', ['sql' => $sqlUpdate]);
-        $affectedRowsUpdate = $targetConn->executeStatement($sqlUpdate, [$currentBatchRevisionId]);
-        $report->updatedCount = (int)$affectedRowsUpdate;
-        $report->addLogMessage("Rows updated in '{$config->targetLiveTableName}' due to hash mismatch: {$report->updatedCount}.");
-
-        // --- C. Handle Deletes ---
-        $targetPkColumns = $config->getTargetPrimaryKeyColumns();
-        if (empty($targetPkColumns)) {
-            $this->logger->warning("Cannot perform deletes: No target primary key columns defined for LEFT JOIN NULL check.");
-        } else {
-            $deletePkColForNullCheck = $targetConn->quoteIdentifier($targetPkColumns[0]);
-            $sqlDelete = "DELETE {$liveTable} FROM {$liveTable} "
-                . "LEFT JOIN {$tempTable} ON {$joinConditionStr} "
-                . "WHERE {$tempTable}.{$deletePkColForNullCheck} IS NULL";
-
-            $this->logger->debug('Executing delete SQL for live table', ['sql' => $sqlDelete]);
-            $affectedRowsDelete = $targetConn->executeStatement($sqlDelete);
-            $report->deletedCount = (int)$affectedRowsDelete;
-            $report->addLogMessage("Rows deleted from '{$config->targetLiveTableName}' (not in source/temp): {$report->deletedCount}.");
-        }
-
-        // --- D. Handle Inserts ---
-        $colsToInsertLive = array_unique(array_merge(
-            $config->getTargetPrimaryKeyColumns(),
-            $config->getTargetDataColumns(),
-            [$meta->contentHash, $meta->createdAt, $meta->batchRevision]
-        ));
-        $quotedColsToInsertLive = array_map(fn($c) => $targetConn->quoteIdentifier($c), $colsToInsertLive);
-
-        $colsToSelectTemp = array_unique(array_merge(
-            $config->getTargetPrimaryKeyColumns(),
-            $config->getTargetDataColumns(),
-            [$meta->contentHash, $meta->createdAt]
-        ));
-        $quotedColsToSelectTemp = array_map(fn($c) => $tempTable . "." . $targetConn->quoteIdentifier($c), $colsToSelectTemp);
-
-        if (empty($quotedColsToSelectTemp) || empty($quotedColsToInsertLive)) {
-            $this->logger->warning("Cannot perform new inserts: column list for SELECT or INSERT is empty.", [
-                'select_cols_count' => count($quotedColsToSelectTemp),
-                'insert_cols_count' => count($quotedColsToInsertLive),
-            ]);
-        } elseif (count($quotedColsToSelectTemp) + 1 !== count($quotedColsToInsertLive)) {
-            $this->logger->error("Column count mismatch for new inserts.", [
-                'select_cols' => $quotedColsToSelectTemp,
-                'insert_cols' => $quotedColsToInsertLive,
-            ]);
-            throw new TableSyncerException("Configuration error: Column count mismatch for new inserts into live table.");
-        } else {
-            $insertPkColForNullCheck = $targetConn->quoteIdentifier($targetPkColumns[0]);
-            $sqlInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLive) . ") "
-                . "SELECT " . implode(', ', $quotedColsToSelectTemp) . ", ? " // ? for batch_revision
-                . "FROM {$tempTable} "
-                . "LEFT JOIN {$liveTable} ON {$joinConditionStr} "
-                . "WHERE {$liveTable}.{$insertPkColForNullCheck} IS NULL";
-
-            $this->logger->debug('Executing insert SQL for new rows in live table', ['sql' => $sqlInsert]);
-            $affectedRowsInsert = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId]);
-            $report->insertedCount = (int)$affectedRowsInsert;
-            $report->addLogMessage("New rows inserted into '{$config->targetLiveTableName}': {$report->insertedCount}.");
-        }
-            
             // Commit transaction if we started it
             if ($transactionStartedByThisMethod && $targetConn->isTransactionActive()) {
                 $targetConn->commit();
