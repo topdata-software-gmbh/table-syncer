@@ -45,6 +45,15 @@ class TableSyncConfigDTO
     /** @var string Default placeholder for non-nullable datetime columns */
     public string $placeholderDatetime = '2222-02-22 00:00:00';
 
+    /** @var string|null SQL definition for creating/replacing the source view. */
+    public ?string $viewDefinition = null;
+
+    /** @var bool Whether to attempt creation/replacement of the source view before syncing. */
+    public bool $shouldCreateView = false;
+
+    /** @var string[] Array of SQL statements to create/replace dependent views. Executed before the main viewDefinition. */
+    public array $viewDependencies = [];
+
     /**
      * @param Connection $sourceConnection
      * @param string $sourceTableName
@@ -71,7 +80,10 @@ class TableSyncConfigDTO
         ?string $targetTempTableName = null,
         ?string $placeholderDatetime = null,
         bool $enableDeletionLogging = false,
-        ?string $targetDeletedLogTableName = null
+        ?string $targetDeletedLogTableName = null,
+        ?string $viewDefinition = null,
+        bool $shouldCreateView = false,
+        array $viewDependencies = []
     ) {
         $this->sourceConnection = $sourceConnection;
         $this->sourceTableName = $sourceTableName;
@@ -87,6 +99,11 @@ class TableSyncConfigDTO
         if ($placeholderDatetime !== null) {
             $this->placeholderDatetime = $placeholderDatetime;
         }
+
+        // Set view-related properties
+        $this->viewDefinition = $viewDefinition;
+        $this->shouldCreateView = $shouldCreateView;
+        $this->viewDependencies = $viewDependencies;
 
         // Set deletion logging properties
         $this->enableDeletionLogging = $enableDeletionLogging;
@@ -134,6 +151,16 @@ class TableSyncConfigDTO
         foreach ($this->nonNullableDatetimeSourceColumns as $sourceDatetimeColumn) {
             if (!array_key_exists($sourceDatetimeColumn, $this->dataColumnMapping)) {
                 throw new \InvalidArgumentException("Non-nullable source datetime column '{$sourceDatetimeColumn}' must be defined in dataColumnMapping.");
+            }
+        }
+
+        // Validate view-related parameters
+        if ($this->shouldCreateView) {
+            if (empty(trim((string)$this->viewDefinition))) {
+                throw new \InvalidArgumentException('If shouldCreateView is true, viewDefinition cannot be empty.');
+            }
+            if (empty(trim($this->sourceTableName))) {
+                throw new \InvalidArgumentException('If shouldCreateView is true, sourceTableName (representing the view name) cannot be empty.');
             }
         }
     }
