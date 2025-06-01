@@ -12,10 +12,12 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
 use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException; // For schema validation
+use TopdataSoftwareGmbh\TableSyncer\Service\SourceIntrospection\SourceIntrospector;
 
 class GenericSchemaManager
 {
     private readonly LoggerInterface $logger;
+    private readonly SourceIntrospector $sourceIntrospector;
     /**
      * @var array<string, array<string, mixed>>|null Cache for detailed source column definitions.
      *                                              Example: ['col_name' => ['type' => 'string', 'length' => 50, 'notnull' => true, ...]]
@@ -23,9 +25,12 @@ class GenericSchemaManager
     private ?array $sourceColumnDefinitionsCache = null;
     private ?string $cachedSourceTableName = null;
 
-    public function __construct(?LoggerInterface $logger = null)
-    {
+    public function __construct(
+        ?LoggerInterface $logger = null,
+        ?SourceIntrospector $sourceIntrospector = null // Allow injecting for testing
+    ) {
         $this->logger = $logger ?? new NullLogger();
+        $this->sourceIntrospector = $sourceIntrospector ?? new SourceIntrospector($this->logger);
     }
 
     /**
@@ -36,48 +41,30 @@ class GenericSchemaManager
      */
     public function getSourceColumnDefinitions(TableSyncConfigDTO $config): array
     {
-        $this->logger->debug('Getting source column definitions');
+        $this->logger->debug('Getting source column definitions via SourceIntrospector');
 
         if ($this->sourceColumnDefinitionsCache !== null && $this->cachedSourceTableName === $config->sourceTableName) {
-            $this->logger->debug('Using cached source column definitions');
+            $this->logger->debug('Using cached source column definitions for', ['source' => $config->sourceTableName]);
             return $this->sourceColumnDefinitionsCache;
         }
 
         $sourceConn = $config->sourceConnection;
-        $schemaManager = $sourceConn->createSchemaManager();
-        $sourceTableName = $config->sourceTableName;
+        $sourceName = $config->sourceTableName;
 
-        $this->logger->debug('Introspecting source table for detailed column definitions', ['table' => $sourceTableName]);
-
-        if (!$schemaManager->tablesExist([$sourceTableName])) {
-            throw new ConfigurationException("Source table '{$sourceTableName}' does not exist in the source database `{$sourceConn->getDatabase()}`.");
+        // Delegate to the SourceIntrospector
+        try {
+            $columnDefinitions = $this->sourceIntrospector->introspectSource($sourceConn, $sourceName);
+        } catch (ConfigurationException $e) {
+            // Re-throw if needed, or add more context
+            $this->logger->error("Failed to get source column definitions for '{$sourceName}': " . $e->getMessage(), ['exception' => $e]);
+            throw $e; 
+        } catch (\Throwable $e) { // Catch any other unexpected error
+            $this->logger->error("Unexpected error getting source column definitions for '{$sourceName}': " . $e->getMessage(), ['exception' => $e]);
+            throw new ConfigurationException("Unexpected error introspecting source '{$sourceName}': " . $e->getMessage(), 0, $e);
         }
-
-        $tableDetails = $schemaManager->introspectTable($sourceTableName);
-        $dbalColumns = $tableDetails->getColumns();
-
-        $columnDefinitions = [];
-        foreach ($dbalColumns as $dbalColumn) {
-            $columnName = $dbalColumn->getName();
-            $columnDefinitions[$columnName] = [
-                'name'            => $columnName, // Redundant but good for consistency
-                'type'            => $this->getDbalTypeNameFromTypeObject($dbalColumn->getType()),
-                'length'          => $dbalColumn->getLength(),
-                'precision'       => $dbalColumn->getPrecision(),
-                'scale'           => $dbalColumn->getScale(),
-                'unsigned'        => $dbalColumn->getUnsigned(),
-                'fixed'           => $dbalColumn->getFixed(),
-                'notnull'         => $dbalColumn->getNotnull(),
-                'default'         => $dbalColumn->getDefault(),
-                'autoincrement'   => $dbalColumn->getAutoincrement(),
-                'platformOptions' => $dbalColumn->getPlatformOptions(),
-                'comment'         => $dbalColumn->getComment(),
-                // customSchemaOptions are typically not needed for basic creation
-            ];
-        }
-
+        
         $this->sourceColumnDefinitionsCache = $columnDefinitions;
-        $this->cachedSourceTableName = $sourceTableName;
+        $this->cachedSourceTableName = $sourceName;
 
         return $columnDefinitions;
     }
@@ -422,18 +409,7 @@ class GenericSchemaManager
         return $options;
     }
 
-    /**
-     * Gets the DBAL type name from a Type object.
-     * For DBAL 4.x, this uses the static Type::lookupName() method.
-     *
-     * @param \Doctrine\DBAL\Types\Type $type The Type object.
-     * @return string The name of the type (e.g., "integer", "string").
-     * @throws \Doctrine\DBAL\Exception If the type is not registered (should not happen for built-in types).
-     */
-    public function getDbalTypeNameFromTypeObject(\Doctrine\DBAL\Types\Type $type): string
-    {
-        return \Doctrine\DBAL\Types\Type::lookupName($type);
-    }
+
 
     public function mapInformationSchemaType(
         string $infoSchemaType,
