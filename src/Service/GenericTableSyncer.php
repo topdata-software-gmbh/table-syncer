@@ -7,7 +7,9 @@ use Psr\Log\NullLogger;
 use TopdataSoftwareGmbh\TableSyncer\DTO\SyncReportDTO;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
 use TopdataSoftwareGmbh\TableSyncer\Exception\TableSyncerException;
+use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException;
 use TopdataSoftwareGmbH\Util\UtilDebug;
+use Doctrine\DBAL\Exception as DBALException;
 
 class GenericTableSyncer
 {
@@ -48,9 +50,132 @@ class GenericTableSyncer
      * @return SyncReportDTO
      * @throws TableSyncerException
      */
+    /**
+     * Creates or replaces the source view if view creation is enabled in the configuration.
+     *
+     * @param TableSyncConfigDTO $config
+     * @return void
+     * @throws ConfigurationException If view creation is enabled but view definition is missing or invalid
+     * @throws TableSyncerException If view creation fails
+     */
+    protected function createSourceView(TableSyncConfigDTO $config): void
+    {
+        if (!$config->shouldCreateView) {
+            return; // View creation is not enabled
+        }
+
+        $this->logger->info('Starting source view creation', [
+            'source' => $config->sourceTableName,
+            'isView' => true
+        ]);
+
+        try {
+            $sourceConn = $config->sourceConnection;
+            $schemaManager = $sourceConn->createSchemaManager();
+            $viewName = $config->sourceTableName;
+
+            // Execute any view dependencies first
+            $this->executeViewDependencies($config, $sourceConn);
+
+            // Check if view already exists
+            $viewExists = in_array($viewName, $schemaManager->listTableNames(), true);
+            $dropViewSql = $sourceConn->getDatabasePlatform()->getDropViewSQL($viewName);
+            $createViewSql = $config->viewDefinition;
+
+            // Start transaction for view creation
+            $sourceConn->beginTransaction();
+            try {
+                // Drop existing view if it exists
+                if ($viewExists) {
+                    $this->logger->debug('Dropping existing view', ['view' => $viewName]);
+                    $sourceConn->executeStatement($dropViewSql);
+                }
+
+                // Create the view
+                $this->logger->info('Creating view', [
+                    'view' => $viewName,
+                    'sql' => $createViewSql
+                ]);
+                $sourceConn->executeStatement($createViewSql);
+
+                $sourceConn->commit();
+                $this->logger->info('View created successfully', ['view' => $viewName]);
+            } catch (\Exception $e) {
+                $sourceConn->rollBack();
+                throw $e;
+            }
+        } catch (\Throwable $e) {
+            $this->logger->error('Failed to create source view', [
+                'view' => $config->sourceTableName,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            throw new TableSyncerException(
+                "Failed to create source view '{$config->sourceTableName}': " . $e->getMessage(),
+                (int)$e->getCode(),
+                $e
+            );
+        }
+    }
+
+    /**
+     * Executes SQL statements that the view depends on.
+     *
+     * @param TableSyncConfigDTO $config
+     * @param \Doctrine\DBAL\Connection $connection
+     * @return void
+     * @throws TableSyncerException If dependency execution fails
+     */
+    protected function executeViewDependencies(TableSyncConfigDTO $config, \Doctrine\DBAL\Connection $connection): void
+    {
+        if (empty($config->viewDependencies)) {
+            return;
+        }
+
+        $this->logger->debug('Executing view dependencies', [
+            'count' => count($config->viewDependencies)
+        ]);
+
+        foreach ($config->viewDependencies as $index => $sql) {
+            try {
+                $this->logger->debug('Executing dependency SQL', [
+                    'index' => $index,
+                    'sql' => $sql
+                ]);
+                $connection->executeStatement($sql);
+            } catch (\Throwable $e) {
+                $this->logger->error('Failed to execute view dependency', [
+                    'index' => $index,
+                    'sql' => $sql,
+                    'error' => $e->getMessage()
+                ]);
+                throw new TableSyncerException(
+                    "Failed to execute view dependency #{$index}: " . $e->getMessage(),
+                    (int)$e->getCode(),
+                    $e
+                );
+            }
+        }
+    }
+
     public function sync(TableSyncConfigDTO $config, int $currentBatchRevisionId): SyncReportDTO
     {
         $targetConn = $config->targetConnection;
+        
+        // Handle view creation if configured
+        try {
+            $this->createSourceView($config);
+        } catch (\Throwable $e) {
+            // If view creation fails and it's required, rethrow the exception
+            if ($config->shouldCreateView) {
+                throw $e;
+            }
+            // If view creation fails but it's not required, log and continue
+            $this->logger->warning('Optional view creation failed, but continuing with sync', [
+                'source' => $config->sourceTableName,
+                'error' => $e->getMessage()
+            ]);
+        }
         // Transaction management for DML operations is now handled by TempToLiveSynchronizer
         // This method now acts as an orchestrator for the overall sync process
         try {
