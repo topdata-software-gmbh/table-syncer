@@ -537,4 +537,73 @@ class GenericSchemaManager
         }
         return $types;
     }
+
+    /**
+     * Ensures the deletion log table exists with the correct schema.
+     * This table will store records of rows deleted from the live table.
+     *
+     * @param TableSyncConfigDTO $config
+     * @return void
+     * @throws \Throwable If table creation fails
+     */
+    public function ensureDeletedLogTable(TableSyncConfigDTO $config): void
+    {
+        if (!$config->enableDeletionLogging || empty($config->targetDeletedLogTableName)) {
+            // Should not happen if config validation is correct, but as a safeguard.
+            $this->logger->debug('Deletion logging not enabled or log table name not set, skipping ensureDeletedLogTable.');
+            return;
+        }
+
+        $this->logger->debug('Ensuring deletion log table schema', [
+            'deletedLogTable' => $config->targetDeletedLogTableName,
+        ]);
+
+        $targetConn = $config->targetConnection;
+        $dbalSchemaManager = $targetConn->createSchemaManager();
+        $logTableName = $config->targetDeletedLogTableName; // Already validated to be non-empty
+
+        if ($dbalSchemaManager->tablesExist([$logTableName])) {
+            $this->logger->info("Deletion log table '{$logTableName}' already exists. Schema validation for it is not implemented in this version.");
+            // Future enhancement: Validate schema of existing log table.
+            return;
+        }
+
+        $this->logger->info("Deletion log table '{$logTableName}' does not exist. Creating...");
+
+        $table = new Table($logTableName);
+
+        // Define columns for the deletion log table
+        $table->addColumn('log_id', Types::BIGINT, [
+            'autoincrement' => true,
+            'notnull' => true,
+        ]);
+        $table->setPrimaryKey(['log_id']);
+
+        // deleted_syncer_id should match the type of the _syncer_id in the live table
+        $table->addColumn('deleted_syncer_id', $config->targetIdColumnType, [
+            'notnull' => true,
+            // Consider length/precision/scale if targetIdColumnType needs it, though typically INTEGER/BIGINT
+        ]);
+
+        $table->addColumn('deleted_at_revision_id', Types::INTEGER, [
+            'notnull' => true,
+        ]);
+
+        $table->addColumn('deletion_timestamp', Types::DATETIME_MUTABLE, [
+            'notnull' => true,
+            'default' => 'CURRENT_TIMESTAMP', // Relies on DB to handle this; or set explicitly during INSERT
+        ]);
+
+        // Add indexes
+        $table->addIndex(['deleted_at_revision_id'], 'idx_' . $logTableName . '_revision_id');
+        $table->addIndex(['deleted_syncer_id'], 'idx_' . $logTableName . '_syncer_id');
+
+        try {
+            $dbalSchemaManager->createTable($table);
+            $this->logger->info("Deletion log table '{$logTableName}' created successfully.");
+        } catch (\Throwable $e) {
+            $this->logger->error("Failed to create deletion log table '{$logTableName}': " . $e->getMessage(), ['exception' => $e]);
+            throw $e; // Re-throw
+        }
+    }
 }

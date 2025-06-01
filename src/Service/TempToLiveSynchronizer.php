@@ -158,6 +158,60 @@ class TempToLiveSynchronizer
             } else {
                 // Ensure the column for NULL check is from the TEMP table after the LEFT JOIN
                 $tempTablePkColForNullCheck = $tempTable . "." . $targetConn->quoteIdentifier($targetPkColumns[0]);
+                
+                // --- C.1. Log deletions if enabled ---
+                if ($config->enableDeletionLogging && !empty($config->targetDeletedLogTableName)) {
+                    $this->logger->debug('Deletion logging is enabled, logging deletions before performing delete operation');
+                    
+                    // Get quoted identifiers for tables
+                    $deletedLogTableIdentifier = $targetConn->quoteIdentifier($config->targetDeletedLogTableName);
+                    $liveTableIdentifierForLog = $targetConn->quoteIdentifier($config->targetLiveTableName) . ' lt'; // Alias as 'lt'
+                    $tempTableIdentifierForLog = $targetConn->quoteIdentifier($config->targetTempTableName) . ' tt'; // Alias as 'tt'
+                    
+                    // Get quoted syncer_id column from live table
+                    $liveSyncerIdCol = $targetConn->quoteIdentifier($config->metadataColumns->id);
+                    
+                    // Create join conditions with aliases
+                    $logJoinConditions = [];
+                    foreach ($config->getTargetPrimaryKeyColumns() as $keyCol) {
+                        $quotedKeyCol = $targetConn->quoteIdentifier($keyCol);
+                        $logJoinConditions[] = "lt.{$quotedKeyCol} = tt.{$quotedKeyCol}";
+                    }
+                    $logJoinConditionStr = implode(' AND ', $logJoinConditions);
+                    
+                    // Define columns for the log table insert
+                    $logTableInsertCols = [
+                        $targetConn->quoteIdentifier('deleted_syncer_id'),
+                        $targetConn->quoteIdentifier('deleted_at_revision_id'),
+                        $targetConn->quoteIdentifier('deletion_timestamp')
+                    ];
+                    
+                    // Ensure the column for NULL check is from the TEMP table after the LEFT JOIN with alias
+                    $tempTableBusinessPkColForNullCheck = 'tt.' . $targetConn->quoteIdentifier($targetPkColumns[0]);
+                    
+                    // Construct the SQL to log deletions
+                    $sqlLogDeletes = "INSERT INTO {$deletedLogTableIdentifier} (" . implode(', ', $logTableInsertCols) . ") "
+                        . "SELECT lt.{$liveSyncerIdCol}, ?, CURRENT_TIMESTAMP "
+                        . "FROM {$liveTableIdentifierForLog} "
+                        . "LEFT JOIN {$tempTableIdentifierForLog} ON {$logJoinConditionStr} "
+                        . "WHERE {$tempTableBusinessPkColForNullCheck} IS NULL";
+                    
+                    $paramsForLog = [$currentBatchRevisionId];
+                    
+                    try {
+                        $this->logger->debug('Executing log deletions SQL', ['sql' => $sqlLogDeletes]);
+                        $affectedRowsLog = $targetConn->executeStatement($sqlLogDeletes, $paramsForLog);
+                        $report->loggedDeletionsCount = (int)$affectedRowsLog;
+                        $report->addLogMessage("Deletions logged to '{$config->targetDeletedLogTableName}': {$report->loggedDeletionsCount}.");
+                    } catch (\Throwable $e) {
+                        $this->logger->error("Failed to log deletions: " . $e->getMessage(), ['exception' => $e]);
+                        throw new TableSyncerException("Failed to log deletions: " . $e->getMessage(), 0, $e);
+                    }
+                } else {
+                    $this->logger->debug('Deletion logging is not enabled, skipping deletion logging');
+                }
+                
+                // --- C.2. Perform the actual delete operation ---
                 $sqlDelete = "DELETE {$liveTable} FROM {$liveTable} " // MySQL specific syntax for aliasing in DELETE with JOIN
                     . "LEFT JOIN {$tempTable} ON {$joinConditionStr} "
                     . "WHERE {$tempTablePkColForNullCheck} IS NULL";

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0] - 2025-06-15
+### Added
+- Optional deletion logging feature to track deleted records
+- New configuration options in TableSyncConfigDTO for enabling deletion logging
+- Automatic creation of deletion log table with appropriate schema
+- Enhanced SyncReportDTO with logged deletions count
+- Comprehensive documentation for the deletion logging feature
+
 ## [1.0.1] - 2025-05-31
 ### Added
 - Enhanced error handling in synchronization process

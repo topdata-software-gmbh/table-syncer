@@ -58,6 +58,12 @@ class GenericTableSyncer
 
             // 1. Ensure live table exists with correct schema
             $this->schemaManager->ensureLiveTable($config);
+            
+            // 1.1 Ensure deleted log table exists if deletion logging is enabled
+            if ($config->enableDeletionLogging) {
+                $this->logger->info('Deletion logging is enabled, ensuring deleted log table exists');
+                $this->schemaManager->ensureDeletedLogTable($config);
+            }
 
             // 2. Prepare temp table (drop if exists, create new)
             $this->schemaManager->prepareTempTable($config);

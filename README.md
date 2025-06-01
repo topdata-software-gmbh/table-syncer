@@ -10,6 +10,7 @@ A generic PHP library for synchronizing table data between two databases using D
 - PSR-3 logging support for monitoring and debugging
 - Support for non-nullable datetime columns with placeholder values
 - Customizable metadata column handling
+- Optional deletion logging to track deleted records
 - Robust error handling with custom exceptions
 
 ## Requirements
@@ -100,6 +101,8 @@ The `TableSyncConfigDTO` class allows for comprehensive configuration of the syn
 - `nonNullableDatetimeSourceColumns`: Datetime columns that cannot be NULL in the source
 - `placeholderDatetime`: String containing a placeholder datetime value (e.g. '2222-02-22 00:00:00') to use for non-nullable datetime columns when source has NULL
 - `metadataColumns`: Columns to include in metadata handling
+- `enableDeletionLogging`: Enable logging of deleted records (default: false)
+- `targetDeletedLogTableName`: Custom name for the deletion log table (default: <targetLiveTableName>_deleted_log)
 - `targetColumnTypeOverrides`: Overrides for target column types
 - `targetColumnLengthOverrides`: Overrides for target column lengths
 
@@ -127,6 +130,42 @@ The library uses a service architecture with dependency injection:
 - `GenericSchemaManager`: Handles table schema creation and validation
 - `GenericIndexManager`: Manages index creation for both temp and live tables
 - `GenericDataHasher`: Handles the content hash generation for change detection
+
+## Deletion Logging (Optional)
+
+The library supports optional logging of deleted records. When enabled, a separate table is created to track rows that are deleted from the live target table during synchronization.
+
+### Configuration
+
+To enable deletion logging, set the following properties in your `TableSyncConfigDTO`:
+
+```php
+$config = new TableSyncConfigDTO(
+    // ... other parameters ...
+    enableDeletionLogging: true,
+    targetDeletedLogTableName: 'custom_deleted_log_table' // Optional, defaults to <targetLiveTableName>_deleted_log
+);
+```
+
+### Log Table Schema
+
+When deletion logging is enabled, a table with the following schema is created:
+
+- `log_id`: BIGINT, auto-increment, primary key
+- `deleted_syncer_id`: Same type as the `_syncer_id` in the live table, stores the ID of the deleted record
+- `deleted_at_revision_id`: INTEGER, stores the batch revision ID when the record was deleted
+- `deletion_timestamp`: DATETIME, stores when the deletion occurred
+
+The table includes indexes on `deleted_at_revision_id` and `deleted_syncer_id` for efficient querying.
+
+### Accessing Logged Deletions
+
+The `SyncReportDTO` includes a `loggedDeletionsCount` property that indicates how many deletions were logged during the synchronization process. This count is also included in the summary if greater than zero:
+
+```php
+$report = $syncer->sync($config, $batchRevisionId);
+echo $report->getSummary(); // Example: "Inserts: 5, Updates: 10, Deletes: 3, Logged Deletions: 3"
+```
 
 ## License
 

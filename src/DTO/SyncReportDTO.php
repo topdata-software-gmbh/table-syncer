@@ -12,6 +12,7 @@ class SyncReportDTO
     public int $updatedCount = 0;
     public int $deletedCount = 0;
     public int $initialInsertCount = 0;
+    public int $loggedDeletionsCount = 0;
     /** @var array<int, array{level: string, message: string, context: array<string, mixed>}> */
     private array $logMessages = [];
 
@@ -23,12 +24,13 @@ class SyncReportDTO
      * @param int $deletedCount
      * @param int $initialInsertCount
      */
-    public function __construct(int $insertedCount = 0, int $updatedCount = 0, int $deletedCount = 0, int $initialInsertCount = 0)
+    public function __construct(int $insertedCount = 0, int $updatedCount = 0, int $deletedCount = 0, int $initialInsertCount = 0, int $loggedDeletionsCount = 0)
     {
         $this->insertedCount = $insertedCount;
         $this->updatedCount = $updatedCount;
         $this->deletedCount = $deletedCount;
         $this->initialInsertCount = $initialInsertCount;
+        $this->loggedDeletionsCount = $loggedDeletionsCount;
     }
 
     /**
@@ -64,11 +66,21 @@ class SyncReportDTO
      */
     public function getSummary(): string
     {
-        return sprintf(
+        $summary = sprintf(
             "Inserts: %d, Updates: %d, Deletes: %d",
             $this->insertedCount,
             $this->updatedCount,
             $this->deletedCount
         );
+        
+        if ($this->loggedDeletionsCount > 0) {
+            $summary .= sprintf(", Logged Deletions: %d", $this->loggedDeletionsCount);
+        }
+        
+        if ($this->initialInsertCount > 0) {
+            $summary .= sprintf(" (Initial Import: %d)", $this->initialInsertCount);
+        }
+        
+        return $summary;
     }
 }

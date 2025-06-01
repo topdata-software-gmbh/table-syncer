@@ -37,6 +37,11 @@ class TableSyncConfigDTO
     /** @var int Length for hash column if string type */
     public int $targetHashColumnLength = 64; // SHA256 hex output
 
+    /** @var bool Whether to enable deletion logging */
+    public bool $enableDeletionLogging = false;
+    /** @var string|null Name of the deletion log table */
+    public ?string $targetDeletedLogTableName = null;
+
     /** @var string Default placeholder for non-nullable datetime columns */
     public string $placeholderDatetime = '2222-02-22 00:00:00';
 
@@ -64,7 +69,9 @@ class TableSyncConfigDTO
         ?MetadataColumnNamesDTO $metadataColumns = null,
         array $nonNullableDatetimeSourceColumns = [],
         ?string $targetTempTableName = null,
-        ?string $placeholderDatetime = null
+        ?string $placeholderDatetime = null,
+        bool $enableDeletionLogging = false,
+        ?string $targetDeletedLogTableName = null
     ) {
         $this->sourceConnection = $sourceConnection;
         $this->sourceTableName = $sourceTableName;
@@ -79,6 +86,23 @@ class TableSyncConfigDTO
         $this->metadataColumns = $metadataColumns ?? new MetadataColumnNamesDTO();
         if ($placeholderDatetime !== null) {
             $this->placeholderDatetime = $placeholderDatetime;
+        }
+
+        // Set deletion logging properties
+        $this->enableDeletionLogging = $enableDeletionLogging;
+        $this->targetDeletedLogTableName = $targetDeletedLogTableName;
+
+        // Set default for targetDeletedLogTableName if logging is enabled and no name is provided
+        if ($this->enableDeletionLogging && $this->targetDeletedLogTableName === null) {
+            if (empty($this->targetLiveTableName)) {
+                throw new \InvalidArgumentException('targetLiveTableName must be set if deletion logging is enabled without a specific targetDeletedLogTableName.');
+            }
+            $this->targetDeletedLogTableName = $this->targetLiveTableName . '_deleted_log';
+        }
+
+        // Validate deletion logging configuration
+        if ($this->enableDeletionLogging && empty($this->targetDeletedLogTableName)) {
+            throw new \InvalidArgumentException('targetDeletedLogTableName cannot be empty if deletion logging is enabled.');
         }
 
         // Basic validation
