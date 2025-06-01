@@ -2,17 +2,18 @@
 
 namespace TopdataSoftwareGmbh\TableSyncer\Service;
 
-use Doctrine\DBAL\Connection;
-// use Doctrine\DBAL\ParameterType; // Not directly used in this snippet
-use Doctrine\DBAL\Schema\Column as DbalColumn; // Alias to avoid confusion
 use Doctrine\DBAL\Schema\Table;
-use Doctrine\DBAL\Types\Type;
-use Doctrine\DBAL\Types\Types; // Import for easier type referencing
+use Doctrine\DBAL\Types\Types;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
-use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException; // For schema validation
+use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException;
 use TopdataSoftwareGmbh\TableSyncer\Service\SourceIntrospection\SourceIntrospector;
+
+// use Doctrine\DBAL\ParameterType; // Not directly used in this snippet
+// Alias to avoid confusion
+// Import for easier type referencing
+// For schema validation
 
 class GenericSchemaManager
 {
@@ -26,9 +27,10 @@ class GenericSchemaManager
     private ?string $cachedSourceTableName = null;
 
     public function __construct(
-        ?LoggerInterface $logger = null,
+        ?LoggerInterface    $logger = null,
         ?SourceIntrospector $sourceIntrospector = null // Allow injecting for testing
-    ) {
+    )
+    {
         $this->logger = $logger ?? new NullLogger();
         $this->sourceIntrospector = $sourceIntrospector ?? new SourceIntrospector($this->logger);
     }
@@ -57,12 +59,12 @@ class GenericSchemaManager
         } catch (ConfigurationException $e) {
             // Re-throw if needed, or add more context
             $this->logger->error("Failed to get source column definitions for '{$sourceName}': " . $e->getMessage(), ['exception' => $e]);
-            throw $e; 
+            throw $e;
         } catch (\Throwable $e) { // Catch any other unexpected error
             $this->logger->error("Unexpected error getting source column definitions for '{$sourceName}': " . $e->getMessage(), ['exception' => $e]);
             throw new ConfigurationException("Unexpected error introspecting source '{$sourceName}': " . $e->getMessage(), 0, $e);
         }
-        
+
         $this->sourceColumnDefinitionsCache = $columnDefinitions;
         $this->cachedSourceTableName = $sourceName;
 
@@ -410,7 +412,6 @@ class GenericSchemaManager
     }
 
 
-
     public function mapInformationSchemaType(
         string $infoSchemaType,
         ?int   $charMaxLength,
@@ -556,7 +557,7 @@ class GenericSchemaManager
         // Define columns for the deletion log table
         $table->addColumn('log_id', Types::BIGINT, [
             'autoincrement' => true,
-            'notnull' => true,
+            'notnull'       => true,
         ]);
         $table->setPrimaryKey(['log_id']);
 

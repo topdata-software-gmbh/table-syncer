@@ -3,7 +3,7 @@
 namespace TopdataSoftwareGmbh\TableSyncer\Service\SourceIntrospection;
 
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\Schema\Exception\TableNotFoundException;
+use Doctrine\DBAL\Exception\TableNotFoundException;
 use Doctrine\DBAL\Types\Type;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
