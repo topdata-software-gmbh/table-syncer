@@ -19,19 +19,24 @@ class GenericTableSyncer
     private readonly LoggerInterface $logger;
 
     public function __construct(
-        GenericSchemaManager $schemaManager,
-        GenericIndexManager  $indexManager,
-        GenericDataHasher    $dataHasher,
-        ?SourceToTempLoader  $sourceToTempLoader = null,
-        ?TempToLiveSynchronizer $tempToLiveSynchronizer = null,
-        ?LoggerInterface     $logger = null
-    )
-    {
-        $this->schemaManager = $schemaManager;
-        $this->indexManager = $indexManager;
-        $this->dataHasher = $dataHasher;
-        $this->logger = $logger ?? new NullLogger();
-        $this->sourceToTempLoader = $sourceToTempLoader ?? new SourceToTempLoader($schemaManager, $this->logger);
+        // Option 1: Only logger, create everything else (simplest for user)
+        LoggerInterface $logger,
+        // Option 2: Allow full DI by making other services optional
+        ?GenericSchemaManager $schemaManager = null,
+        ?GenericIndexManager  $indexManager = null,
+        ?GenericDataHasher    $dataHasher = null,
+        ?SourceToTempLoader   $sourceToTempLoader = null,
+        ?TempToLiveSynchronizer $tempToLiveSynchronizer = null
+        // Note: No separate $logger parameter if it's always the first and required one
+    ) {
+        $this->logger = $logger; // Always use the provided logger
+
+        // Instantiate dependencies if not provided
+        $this->schemaManager = $schemaManager ?? new GenericSchemaManager($this->logger);
+        $this->indexManager = $indexManager ?? new GenericIndexManager($this->logger);
+        $this->dataHasher = $dataHasher ?? new GenericDataHasher($this->logger);
+        // SourceToTempLoader needs the schemaManager we just ensured exists
+        $this->sourceToTempLoader = $sourceToTempLoader ?? new SourceToTempLoader($this->logger, $this->schemaManager);
         $this->tempToLiveSynchronizer = $tempToLiveSynchronizer ?? new TempToLiveSynchronizer($this->logger);
     }
 

@@ -44,7 +44,7 @@
 ### Phase 2: Refactor `GenericSchemaManager`
 
 *   [x] **File `GenericSchemaManager.php` - Import Added:**
-    *   `use TopdataSoftwareGmbh\TableSyncer\Service\SourceIntrospection\SourceIntrospector;` is present.
+    *   `use TopdataSoftwareGmbh\TableSyncer\Service\SourceIntrospector;` is present.
 *   [x] **File `GenericSchemaManager.php` - Property Updated:**
     *   Property is `private readonly SourceIntrospector $sourceIntrospector;`.
     *   (Previous `sourceIntrospectors` array property is removed).

@@ -23,12 +23,12 @@ class SourceToTempLoader
     private readonly LoggerInterface $logger;
 
     public function __construct(
-        GenericSchemaManager $schemaManager,
-        ?LoggerInterface     $logger = null
+        ?LoggerInterface     $logger = null,
+        GenericSchemaManager $schemaManager = null
     )
     {
-        $this->schemaManager = $schemaManager;
         $this->logger = $logger ?? new NullLogger();
+        $this->schemaManager = $schemaManager ?? new GenericSchemaManager($this->logger);
     }
 
     /**

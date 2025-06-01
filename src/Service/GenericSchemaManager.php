@@ -8,7 +8,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
 use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException;
-use TopdataSoftwareGmbh\TableSyncer\Service\SourceIntrospection\SourceIntrospector;
+use TopdataSoftwareGmbh\TableSyncer\Service\SourceIntrospector;
 
 // use Doctrine\DBAL\ParameterType; // Not directly used in this snippet
 // Alias to avoid confusion

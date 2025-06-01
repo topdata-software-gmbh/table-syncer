@@ -147,7 +147,7 @@
 1.  **Modify `src/Service/GenericSchemaManager.php`:**
     *   **Add Import:**
         ```php
-        use TopdataSoftwareGmbh\TableSyncer\Service\SourceIntrospection\SourceIntrospector;
+        use TopdataSoftwareGmbh\TableSyncer\Service\SourceIntrospector;
         ```
     *   **Update Properties:**
         *   Change `private readonly array $sourceIntrospectors;` to:
