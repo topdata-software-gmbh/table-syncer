@@ -7,6 +7,7 @@ use Psr\Log\NullLogger;
 use TopdataSoftwareGmbh\TableSyncer\DTO\SyncReportDTO;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
 use TopdataSoftwareGmbh\TableSyncer\Exception\TableSyncerException;
+use TopdataSoftwareGmbH\Util\UtilDebug;
 
 class GenericTableSyncer
 {
