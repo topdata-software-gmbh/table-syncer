@@ -8,7 +8,8 @@ use Doctrine\DBAL\Types\Type;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException;
-use Doctrine\DBAL\Schema\Column as DbalColumn; // For the helper method type hint
+use Doctrine\DBAL\Schema\Column as DbalColumn;
+use Doctrine\DBAL\Schema\Identifier;
 
 class SourceIntrospector
 {
@@ -32,47 +33,69 @@ class SourceIntrospector
         $schemaManager = $sourceConnection->createSchemaManager();
         $sourceTypeForLogging = "UNKNOWN";
 
-        // Attempt to introspect. If introspectTable works, we get details regardless of whether
-        // tablesExist or viewsExist would have categorized it.
-        // introspectTable is the ultimate test of whether DBAL can "see" and describe it like a table.
         try {
-            $this->logger->debug("Attempting to introspect source '{$sourceName}' directly.");
-            $tableDetails = $schemaManager->introspectTable($sourceName);
-            // If successful, we need to determine if it was a table or view for logging.
-            // This is a bit tricky post-hoc without re-querying, but we can make an educated guess.
+            $this->logger->debug("Attempting to introspect source '{$sourceName}' directly (works for tables and views).");
+            $tableDetails = $schemaManager->introspectTable($sourceName); // This works for views too in DBAL
+
+            // If introspectTable succeeded, it's either a table or a view (or similar)
             if ($schemaManager->tablesExist([$sourceName])) {
                 $sourceTypeForLogging = "TABLE";
-            } elseif (method_exists($schemaManager, 'viewsExist') && $schemaManager->viewsExist([$sourceName])) {
-                $sourceTypeForLogging = "VIEW";
-            } elseif (!method_exists($schemaManager, 'viewsExist')) { // Fallback for DBAL < 3.2
+            } else {
+                // Not a table, so let's check if it's a known view
+                $isConfirmedView = false;
                 try {
                     $views = $schemaManager->listViews();
+                    $platform = $sourceConnection->getDatabasePlatform();
+                    
+                    // Normalize the input $sourceName once for comparison
+                    $inputIdentifier = new Identifier($sourceName); // Handles if $sourceName is already quoted or contains schema
+                    $unquotedInputName = $inputIdentifier->getName(); // Gets the simple unquoted name
+                    $quotedInputNamePlatform = $inputIdentifier->getQuotedName($platform); // Gets platform-specific quoted name
+
                     foreach ($views as $view) {
-                        if ($view->getName() === $sourceName ||
-                            $view->getQuotedName($sourceConnection->getDatabasePlatform()) === $sourceConnection->quoteIdentifier($sourceName)) {
-                            $sourceTypeForLogging = "VIEW";
+                        // Compare unquoted names (often sufficient and more robust to case variations if unquoted)
+                        // $view->getName() might return 'schema.viewname' or just 'viewname'
+                        $viewIdentifier = new Identifier($view->getName());
+                        if (strcasecmp($viewIdentifier->getName(), $unquotedInputName) === 0) {
+                             // Check if schemas match if both $sourceName and view name include one
+                            if ($inputIdentifier->getNamespaceName() === $viewIdentifier->getNamespaceName() ||
+                                $inputIdentifier->getNamespaceName() === null || // $sourceName had no schema, view might
+                                $viewIdentifier->getNamespaceName() === null  // view had no schema, $sourceName might
+                            ) {
+                                $isConfirmedView = true;
+                                break;
+                            }
+                        }
+                        // Fallback: Compare platform-specific quoted names
+                        if ($view->getQuotedName($platform) === $quotedInputNamePlatform) {
+                            $isConfirmedView = true;
                             break;
                         }
                     }
-                    if ($sourceTypeForLogging === "UNKNOWN") $sourceTypeForLogging = "INTROSPECTABLE OBJECT (type undetermined)";
-
                 } catch (\Doctrine\DBAL\Exception $e) {
-                    $this->logger->warning("Could not list views to determine type for '{$sourceName}' after successful introspection. Error: " . $e->getMessage());
-                    $sourceTypeForLogging = "INTROSPECTABLE OBJECT (type undetermined)";
+                    $this->logger->warning(
+                        "Could not list views to determine type for '{$sourceName}' (after successful introspection, and not a table). Error: " . $e->getMessage(),
+                        ['exception_class' => get_class($e)]
+                    );
+                    // Keep $isConfirmedView = false
                 }
-            } else {
-                $sourceTypeForLogging = "INTROSPECTABLE OBJECT (type undetermined)";
+
+                if ($isConfirmedView) {
+                    $sourceTypeForLogging = "VIEW";
+                } else {
+                    // If introspectTable worked, it's not a table, and not found in listViews,
+                    // it's an "introspectable object (type undetermined)".
+                    $sourceTypeForLogging = "INTROSPECTABLE OBJECT (type undetermined, not in listViews)";
+                }
             }
 
             $this->logger->info("Successfully introspected '{$sourceName}' (identified as {$sourceTypeForLogging}). Extracting column definitions.");
             return $this->extractColumnDefinitions($tableDetails->getColumns());
 
         } catch (TableNotFoundException $e) {
-            // This means introspectTable failed to find it as a table or a view it can describe.
             $this->logger->error("Source '{$sourceName}' not found or not introspectable (via introspectTable). Error: " . $e->getMessage(), ['exception_class' => get_class($e)]);
             throw new ConfigurationException("Source table or view '{$sourceName}' does not exist or is not accessible/introspectable in the source database `{$sourceConnection->getDatabase()}`.", 0, $e);
         } catch (\Throwable $e) {
-            // Other unexpected error during introspection
             $this->logger->error("Unexpected error while introspecting source '{$sourceName}'. Error: " . $e->getMessage(), ['exception_class' => get_class($e)]);
             throw new ConfigurationException("Error while trying to introspect source '{$sourceName}': " . $e->getMessage(), 0, $e);
         }

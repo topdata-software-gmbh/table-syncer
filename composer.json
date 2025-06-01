@@ -12,7 +12,7 @@
     "keywords": ["database", "sync", "table sync", "table synchronization", "doctrine", "dbal", "etl", "staging", "psr-3"],
     "require": {
         "php": "^8.0 || ^8.1 || ^8.2 || ^8.3",
-        "doctrine/dbal": "^3.0 || ^4.0",
+        "doctrine/dbal": "^4.0",
         "psr/log": "^1.0 || ^2.0 || ^3.0"
     },
     "autoload": {
