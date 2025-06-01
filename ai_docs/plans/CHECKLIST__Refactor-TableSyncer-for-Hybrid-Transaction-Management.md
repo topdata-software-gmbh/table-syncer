@@ -8,57 +8,57 @@
 
 ## I. Pre-Refactoring Checks
 
--   [ ] **Understand Current State:** Confirm current transaction logic in both `GenericTableSyncer.php` and `TempToLiveSynchronizer.php`.
--   [ ] **Backup Code:** Ensure the current working version of the codebase is backed up or committed to version control.
--   [ ] **Review Plan:** Read and understand the full refactoring plan document.
--   [ ] **Identify Affected Methods:**
+-   [x] **Understand Current State:** Confirm current transaction logic in both `GenericTableSyncer.php` and `TempToLiveSynchronizer.php`.
+-   [x] **Backup Code:** Ensure the current working version of the codebase is backed up or committed to version control.
+-   [x] **Review Plan:** Read and understand the full refactoring plan document.
+-   [x] **Identify Affected Methods:**
     -   `TempToLiveSynchronizer::synchronize()`
     -   `GenericTableSyncer::sync()`
 
 ## II. Phase 1: Modify `src/Service/TempToLiveSynchronizer.php`
 
--   [ ] **Locate `synchronize` method.**
--   [ ] **Initialize `transactionStartedByThisMethod` flag:**
+-   [x] **Locate `synchronize` method.**
+-   [x] **Initialize `transactionStartedByThisMethod` flag:**
     ```php
     $transactionStartedByThisMethod = false;
     ```
     Place this near the beginning of the method, after `$targetConn` is assigned.
--   [ ] **Implement `try...catch` block:** Enclose all DML operations (initial import, updates, deletes, inserts on the live table) within this block.
--   [ ] **Start Transaction Logic:**
-    -   [ ] Check `!$targetConn->isTransactionActive()`.
-    -   [ ] If true, call `$targetConn->beginTransaction()`.
-    -   [ ] If true, set `$transactionStartedByThisMethod = true;`.
-    -   [ ] Add debug log: `Transaction started within TempToLiveSynchronizer...`
--   [ ] **Commit Transaction Logic:**
-    -   [ ] Place at the end of the `try` block (after all DML).
-    -   [ ] Check `$transactionStartedByThisMethod && $targetConn->isTransactionActive()`.
-    -   [ ] If true, call `$targetConn->commit()`.
-    -   [ ] Add debug log: `Transaction committed within TempToLiveSynchronizer...`
--   [ ] **Rollback Transaction Logic (in `catch (\Throwable $e)`):**
-    -   [ ] Check `$transactionStartedByThisMethod && $targetConn->isTransactionActive()`.
-    -   [ ] If true, wrap `$targetConn->rollBack()` in its own `try...catch (\Throwable $rollbackException)`.
-    -   [ ] Log warning for successful rollback.
-    -   [ ] Log error if rollback itself fails.
-    -   [ ] Add log for externally managed transaction if `!$transactionStartedByThisMethod && $targetConn->isTransactionActive()`.
--   [ ] **Re-throw Exception:** Ensure the original exception `$e` is re-thrown from the main `catch` block of the `synchronize` method.
--   [ ] **Review Logging:** Ensure all new log messages are clear, provide context, and use appropriate log levels.
+-   [x] **Implement `try...catch` block:** Enclose all DML operations (initial import, updates, deletes, inserts on the live table) within this block.
+-   [x] **Start Transaction Logic:**
+    -   [x] Check `!$targetConn->isTransactionActive()`.
+    -   [x] If true, call `$targetConn->beginTransaction()`.
+    -   [x] If true, set `$transactionStartedByThisMethod = true;`.
+    -   [x] Add debug log: `Transaction started within TempToLiveSynchronizer...`
+-   [x] **Commit Transaction Logic:**
+    -   [x] Place at the end of the `try` block (after all DML).
+    -   [x] Check `$transactionStartedByThisMethod && $targetConn->isTransactionActive()`.
+    -   [x] If true, call `$targetConn->commit()`.
+    -   [x] Add debug log: `Transaction committed within TempToLiveSynchronizer...`
+-   [x] **Rollback Transaction Logic (in `catch (\Throwable $e)`):**
+    -   [x] Check `$transactionStartedByThisMethod && $targetConn->isTransactionActive()`.
+    -   [x] If true, wrap `$targetConn->rollBack()` in its own `try...catch (\Throwable $rollbackException)`.
+    -   [x] Log warning for successful rollback.
+    -   [x] Log error if rollback itself fails.
+    -   [x] Add log for externally managed transaction if `!$transactionStartedByThisMethod && $targetConn->isTransactionActive()`.
+-   [x] **Re-throw Exception:** Ensure the original exception `$e` is re-thrown from the main `catch` block of the `synchronize` method.
+-   [x] **Review Logging:** Ensure all new log messages are clear, provide context, and use appropriate log levels.
 
 ## III. Phase 2: Modify `src/Service/GenericTableSyncer.php`
 
--   [ ] **Locate `sync` method.**
--   [ ] **Remove Orchestrator-Level DML Transaction Logic:**
-    -   [ ] Delete/comment out `transactionStartedBySyncer` flag initialization.
-    -   [ ] Delete/comment out the `if (!$targetConn->isTransactionActive()) { $targetConn->beginTransaction(); ... }` block that was previously around the DML phase.
-    -   [ ] Delete/comment out the `if ($transactionStartedBySyncer && $targetConn->isTransactionActive()) { $targetConn->commit(); ... }` block.
--   [ ] **Simplify Main `catch (\Throwable $e)` Block:**
-    -   [ ] Remove any calls to `$targetConn->rollBack()` from this block (as `TempToLiveSynchronizer` now handles its own rollback if it started the transaction).
-    -   [ ] Ensure the block logs the error effectively.
-    -   [ ] Ensure the block re-throws the exception (either as is, or wrapped in `TableSyncerException` if it's not already one).
--   [ ] **Verify `finally` Block:**
-    -   [ ] Ensure the `finally` block still robustly attempts to call `$this->schemaManager->dropTempTable($config)`.
-    -   [ ] Ensure errors during `dropTempTable` are caught and logged but generally do not prevent a previously caught main exception from propagating.
--   [ ] **Review Overall Flow:** Confirm that `GenericTableSyncer::sync` now acts as an orchestrator for DDL and setup, and delegates the transactional DML for the live table entirely to `TempToLiveSynchronizer`.
--   [ ] **Review Logging:** Ensure log messages in `GenericTableSyncer` clearly distinguish its orchestration role and phases.
+-   [x] **Locate `sync` method.**
+-   [x] **Remove Orchestrator-Level DML Transaction Logic:**
+    -   [x] Delete/comment out `transactionStartedBySyncer` flag initialization.
+    -   [x] Delete/comment out the `if (!$targetConn->isTransactionActive()) { $targetConn->beginTransaction(); ... }` block that was previously around the DML phase.
+    -   [x] Delete/comment out the `if ($transactionStartedBySyncer && $targetConn->isTransactionActive()) { $targetConn->commit(); ... }` block.
+-   [x] **Simplify Main `catch (\Throwable $e)` Block:**
+    -   [x] Remove any calls to `$targetConn->rollBack()` from this block (as `TempToLiveSynchronizer` now handles its own rollback if it started the transaction).
+    -   [x] Ensure the block logs the error effectively.
+    -   [x] Ensure the block re-throws the exception (either as is, or wrapped in `TableSyncerException` if it's not already one).
+-   [x] **Verify Temp Table Cleanup:**
+    -   [x] Added cleanup attempt in the catch block to ensure `$this->schemaManager->dropTempTable($config)` is called even on error.
+    -   [x] Ensure errors during `dropTempTable` are caught and logged but generally do not prevent a previously caught main exception from propagating.
+-   [x] **Review Overall Flow:** Confirm that `GenericTableSyncer::sync` now acts as an orchestrator for DDL and setup, and delegates the transactional DML for the live table entirely to `TempToLiveSynchronizer`.
+-   [x] **Review Logging:** Ensure log messages in `GenericTableSyncer` clearly distinguish its orchestration role and phases.
 
 ## IV. Post-Refactoring Verification
 

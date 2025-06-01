@@ -46,12 +46,8 @@ class GenericTableSyncer
     public function sync(TableSyncConfigDTO $config, int $currentBatchRevisionId): SyncReportDTO
     {
         $targetConn = $config->targetConnection;
-        // It's generally better to start the transaction right before DML operations,
-        // as DDL operations might implicitly commit. However, for simplicity and if the DB supports DDL in transactions (or handles implicit commits gracefully),
-        // starting it here covers the whole sync. The improved catch block handles scenarios where it might have been committed.
-        if (!$targetConn->isTransactionActive()) { // Start transaction only if not already in one (e.g. by caller)
-            $targetConn->beginTransaction();
-        }
+        // Transaction management for DML operations is now handled by TempToLiveSynchronizer
+        // This method now acts as an orchestrator for the overall sync process
         try {
             $report = new SyncReportDTO();
             $this->logger->info('Starting sync process', [
@@ -83,10 +79,6 @@ class GenericTableSyncer
 
             // 8. Drop temp table to clean up
             $this->schemaManager->dropTempTable($config);
-
-            if ($targetConn->isTransactionActive()) { // Only commit if we started it and it's still active
-                $targetConn->commit();
-            }
             $this->logger->info('Sync completed successfully', [
                 'inserted'      => $report->insertedCount,
                 'updated'       => $report->updatedCount,
@@ -95,25 +87,23 @@ class GenericTableSyncer
             ]);
             return $report;
         } catch (\Throwable $e) {
-            if ($targetConn->isTransactionActive()) {
-                try {
-                    $targetConn->rollBack();
-                    $this->logger->warning('Transaction rolled back due to an error during sync.', ['exception_message' => $e->getMessage()]);
-                } catch (\Throwable $rollbackException) {
-                    $this->logger->error('Failed to roll back transaction: ' . $rollbackException->getMessage(), [
-                        'original_exception_message' => $e->getMessage(),
-                        'rollback_exception'         => $rollbackException
-                    ]);
-                }
-            } else {
-                $this->logger->info('No active transaction to roll back when error occurred. The error might have happened after an implicit commit caused by DDL or if transaction was managed externally.', ['exception_message' => $e->getMessage()]);
-            }
+            // Transaction management for DML operations is now handled by TempToLiveSynchronizer
+            // This catch block now only needs to handle logging and cleanup
 
             $this->logger->error('Sync failed: ' . $e->getMessage(), [
                 'exception' => $e,
                 'source'    => $config->sourceTableName,
                 'target'    => $config->targetLiveTableName
             ]);
+            
+            // Attempt to clean up temp table even on error
+            try {
+                $this->schemaManager->dropTempTable($config);
+                $this->logger->debug('Temp table dropped during error handling');
+            } catch (\Throwable $cleanupException) {
+                $this->logger->warning('Failed to drop temp table during error handling: ' . $cleanupException->getMessage());
+            }
+            
             throw new TableSyncerException('Sync failed: ' . $e->getMessage(), 0, $e);
         }
     }

@@ -35,19 +35,29 @@ class TempToLiveSynchronizer
      */
     public function synchronize(TableSyncConfigDTO $config, int $currentBatchRevisionId, SyncReportDTO $report): void
     {
-        $this->logger->debug('Synchronizing temp table to live table', [
+        $this->logger->debug('Synchronizing temp table to live table (transaction managed internally)', [
             'batchRevisionId' => $currentBatchRevisionId,
             'liveTable'       => $config->targetLiveTableName,
             'tempTable'       => $config->targetTempTableName
         ]);
 
         $targetConn = $config->targetConnection;
+        $transactionStartedByThisMethod = false;
         $meta = $config->metadataColumns;
         $liveTable = $targetConn->quoteIdentifier($config->targetLiveTableName);
         $tempTable = $targetConn->quoteIdentifier($config->targetTempTableName);
+        
+        try {
 
-        // --- A. Check if the live table is empty ---
-        $countResult = $targetConn->fetchOne("SELECT COUNT(*) FROM {$liveTable}");
+            // Start transaction if one is not already active
+            if (!$targetConn->isTransactionActive()) {
+                $targetConn->beginTransaction();
+                $transactionStartedByThisMethod = true;
+                $this->logger->debug('Transaction started within TempToLiveSynchronizer for live table synchronization.');
+            }
+
+            // --- A. Check if the live table is empty ---
+            $countResult = $targetConn->fetchOne("SELECT COUNT(*) FROM {$liveTable}");
         $countInt = is_numeric($countResult) ? (int)$countResult : 0;
 
         if ($countInt === 0) {
@@ -190,6 +200,31 @@ class TempToLiveSynchronizer
             $affectedRowsInsert = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId]);
             $report->insertedCount = (int)$affectedRowsInsert;
             $report->addLogMessage("New rows inserted into '{$config->targetLiveTableName}': {$report->insertedCount}.");
+        }
+            
+            // Commit transaction if we started it
+            if ($transactionStartedByThisMethod && $targetConn->isTransactionActive()) {
+                $targetConn->commit();
+                $this->logger->debug('Transaction committed within TempToLiveSynchronizer for live table synchronization.');
+            }
+        } catch (\Throwable $e) {
+            // Rollback transaction if we started it
+            if ($transactionStartedByThisMethod && $targetConn->isTransactionActive()) {
+                try {
+                    $targetConn->rollBack();
+                    $this->logger->warning('Transaction rolled back within TempToLiveSynchronizer due to an error.', ['exception_message' => $e->getMessage(), 'exception_class' => get_class($e)]);
+                } catch (\Throwable $rollbackException) {
+                    $this->logger->error(
+                        'Failed to roll back transaction in TempToLiveSynchronizer: ' . $rollbackException->getMessage(),
+                        ['original_exception_message' => $e->getMessage(), 'rollback_exception_class' => get_class($rollbackException)]
+                    );
+                }
+            } else if ($targetConn->isTransactionActive() && !$transactionStartedByThisMethod) {
+                // Log if a transaction was active but not started by this method
+                $this->logger->warning('Error in TempToLiveSynchronizer, but transaction was managed externally and remains active.', ['exception_message' => $e->getMessage()]);
+            }
+            // Re-throw the original exception
+            throw $e;
         }
     }
 }
