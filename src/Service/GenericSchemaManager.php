@@ -50,7 +50,7 @@ class GenericSchemaManager
         $this->logger->debug('Introspecting source table for detailed column definitions', ['table' => $sourceTableName]);
 
         if (!$schemaManager->tablesExist([$sourceTableName])) {
-            throw new ConfigurationException("Source table '{$sourceTableName}' does not exist in the source database.");
+            throw new ConfigurationException("Source table '{$sourceTableName}' does not exist in the source database `{$sourceConn->getDatabase()}`.");
         }
 
         $tableDetails = $schemaManager->introspectTable($sourceTableName);
