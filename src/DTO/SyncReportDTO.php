@@ -15,6 +15,8 @@ class SyncReportDTO
     public int $loggedDeletionsCount = 0;
     /** @var array<int, array{level: string, message: string, context: array<string, mixed>}> */
     private array $logMessages = [];
+    public bool $viewCreationAttempted = false;
+    public bool $viewCreationSuccessful = false;
 
     /**
      * Constructor with parameters for the number of inserts, updates, and deletes.
