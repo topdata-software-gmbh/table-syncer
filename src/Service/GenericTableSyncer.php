@@ -6,8 +6,11 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TopdataSoftwareGmbh\TableSyncer\DTO\SyncReportDTO;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
-use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException;
 use TopdataSoftwareGmbh\TableSyncer\Exception\TableSyncerException;
+use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException;
+
+// use TopdataSoftwareGmbH\Util\UtilDebug; // Assuming this is not used in the current context
+use Doctrine\DBAL\Exception as DBALException;
 
 /**
  * 05/2025 created
@@ -30,31 +33,24 @@ class GenericTableSyncer
         ?TempToLiveSynchronizer $tempToLiveSynchronizer = null
     )
     {
-        $this->logger = $logger ?? new NullLogger();
+        $this->logger = $logger;
 
-        // Instantiate dependencies if not provided
         $this->schemaManager = $schemaManager ?? new GenericSchemaManager($this->logger);
         $this->indexManager = $indexManager ?? new GenericIndexManager($this->logger);
         $this->dataHasher = $dataHasher ?? new GenericDataHasher($this->logger);
-        // SourceToTempLoader needs the schemaManager we just ensured exists
         $this->sourceToTempLoader = $sourceToTempLoader ?? new SourceToTempLoader($this->logger, $this->schemaManager);
         $this->tempToLiveSynchronizer = $tempToLiveSynchronizer ?? new TempToLiveSynchronizer($this->logger);
     }
 
     /**
-     * Synchronizes the data between source and target tables.
-     *
-     * @param TableSyncConfigDTO $config
-     * @param int $currentBatchRevisionId
-     * @return SyncReportDTO
-     * @throws TableSyncerException
-     */
-    /**
      * Creates or replaces the source view if view creation is enabled in the configuration.
+     * DDL statements in MySQL often cause implicit commits, so explicit transaction
+     * wrapping for DDLs using DBAL can be problematic. This method executes DDLs
+     * assuming the database handles their atomicity or implicit commits.
      *
      * @param TableSyncConfigDTO $config
      * @return void
-     * @throws ConfigurationException If view creation is enabled but view definition is missing or invalid
+     * @throws ConfigurationException If view definition is missing
      * @throws TableSyncerException If view creation fails
      */
     protected function createSourceView(TableSyncConfigDTO $config): void
@@ -68,67 +64,59 @@ class GenericTableSyncer
             'isView' => true
         ]);
 
-        try {
-            $sourceConn = $config->sourceConnection;
-            $schemaManager = $sourceConn->createSchemaManager();
-            $viewName = $config->sourceTableName;
+        $sourceConn = $config->sourceConnection;
+        $viewName = $config->sourceTableName; // Name of the view to be created/replaced
 
-            // Execute any view dependencies first
+        try {
+            // Execute any view dependencies first.
+            // These are executed directly; if they are DDL, they will also be subject to
+            // the database's implicit commit behavior. If they are DML and require
+            // transactional integrity among themselves, that would need separate handling
+            // or be part of the SQL definition.
             $this->executeViewDependencies($config, $sourceConn);
 
-            // Check if view already exists
-            $viewExists = in_array($viewName, $schemaManager->listTableNames(), true);
-            $dropViewSql = $sourceConn->getDatabasePlatform()->getDropViewSQL($viewName);
             $createViewSql = $config->viewDefinition;
 
-            // Start transaction for view creation
-            $sourceConn->beginTransaction();
-            try {
-                // Drop existing view if it exists
-                if ($viewExists) {
-                    $this->logger->debug('Dropping existing view', ['view' => $viewName]);
-                    $sourceConn->executeStatement($dropViewSql);
-                }
-
-                // Create the view
-                $this->logger->info('Creating view', [
-                    'view' => $viewName,
-                    'sql'  => $createViewSql
-                ]);
-                $sourceConn->executeStatement($createViewSql);
-
-                $sourceConn->commit();
-                $this->logger->info('View created successfully', ['view' => $viewName]);
-            } catch (\Exception $e) {
-                // Check if a transaction is active before attempting to roll back.
-                // This is important for DB platforms like MySQL where DDL statements
-                // can cause implicit commits, potentially leaving no active transaction
-                // from the perspective of the initial beginTransaction() call.
-                if ($sourceConn->isTransactionActive()) {
-                    try {
-                        $sourceConn->rollBack();
-                    } catch (\Throwable $rollbackEx) {
-                        // Log the rollback failure, but prioritize re-throwing the original DDL exception.
-                        $this->logger->warning(
-                            "Rollback attempt failed after an error during view creation. Original error will be re-thrown.",
-                            [
-                                'view'                   => $viewName, // or $config->sourceTableName
-                                'original_error_message' => $e->getMessage(),
-                                'rollback_error_message' => $rollbackEx->getMessage()
-                            ]
-                        );
-                    }
-                }
-                throw $e;
+            if (empty(trim((string)$createViewSql))) {
+                // This should ideally be caught by TableSyncConfigDTO constructor,
+                // but as a safeguard here.
+                throw new ConfigurationException("View definition is empty for '{$viewName}'. Cannot create view.");
             }
-        } catch (\Throwable $e) {
-            $this->logger->error('Failed to create source view', [
-                'view'  => $config->sourceTableName,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+
+            // The user's DDL is expected to be `CREATE OR REPLACE VIEW...` which handles existence.
+            // If it were just `CREATE VIEW...`, one might need to explicitly drop the view first:
+            //
+            // $schemaManager = $sourceConn->createSchemaManager();
+            // $viewExists = in_array($viewName, $schemaManager->listViews()); // Or listTableNames() if views appear there
+            // if ($viewExists) {
+            //     $this->logger->debug('Dropping existing view before CREATE', ['view' => $viewName]);
+            //     $dropViewSql = $sourceConn->getDatabasePlatform()->getDropViewSQL($viewName);
+            //     $sourceConn->executeStatement($dropViewSql); // DDL - implicit commit
+            // }
+            //
+            // However, since `CREATE OR REPLACE VIEW` is used, explicit drop is not necessary.
+
+            $this->logger->info('Executing CREATE OR REPLACE VIEW statement', [
+                'view' => $viewName,
+                'sql'  => $createViewSql
             ]);
+
+            $sourceConn->executeStatement($createViewSql); // Execute the DDL
+
+            $this->logger->info(
+                'View DDL statement executed successfully. MySQL typically handles this with implicit commits.',
+                ['view' => $viewName]
+            );
+
+        } catch (\Throwable $e) {
+            $this->logger->error('Failed to create/replace source view', [
+                'view'  => $viewName,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString() // Full trace for debugging
+            ]);
+            // Re-throw as a TableSyncerException for consistent error handling upstream
             throw new TableSyncerException(
-                "Failed to create source view '{$config->sourceTableName}': " . $e->getMessage(),
+                "Failed to create or replace source view '{$viewName}': " . $e->getMessage(),
                 (int)$e->getCode(),
                 $e
             );
@@ -159,7 +147,7 @@ class GenericTableSyncer
                     'index' => $index,
                     'sql'   => $sql
                 ]);
-                $connection->executeStatement($sql);
+                $connection->executeStatement($sql); // If SQL is DDL, it will implicitly commit on MySQL
             } catch (\Throwable $e) {
                 $this->logger->error('Failed to execute view dependency', [
                     'index' => $index,
@@ -182,24 +170,28 @@ class GenericTableSyncer
      */
     public function sync(TableSyncConfigDTO $config, int $currentBatchRevisionId): SyncReportDTO
     {
-        $targetConn = $config->targetConnection;
-
         // Handle view creation if configured
         try {
             $this->createSourceView($config);
         } catch (\Throwable $e) {
             // If view creation fails and it's required, rethrow the exception
+            // The createSourceView method already logs the detailed error.
             if ($config->shouldCreateView) {
+                // The original exception $e already contains detailed info.
+                // createSourceView wraps it in TableSyncerException.
                 throw $e;
             }
-            // If view creation fails but it's not required, log and continue
-            $this->logger->warning('Optional view creation failed, but continuing with sync', [
+            // If view creation fails but it's not strictly required by config (shouldCreateView=false, though createSourceView checks this),
+            // or if we want to be lenient (which is not the case if shouldCreateView=true).
+            // This path is less likely if shouldCreateView is true, as createSourceView would throw.
+            $this->logger->warning('Optional view creation failed (or was not enabled), but continuing with sync if possible.', [
                 'source' => $config->sourceTableName,
                 'error'  => $e->getMessage()
             ]);
         }
-        // Transaction management for DML operations is now handled by TempToLiveSynchronizer
-        // This method now acts as an orchestrator for the overall sync process
+
+        // Main synchronization logic (DML operations)
+        // Transaction management for these DML operations is handled by TempToLiveSynchronizer
         try {
             $report = new SyncReportDTO();
             $this->logger->info('Starting sync process', [
@@ -238,20 +230,19 @@ class GenericTableSyncer
             // 8. Drop temp table to clean up
             $this->schemaManager->dropTempTable($config);
             $this->logger->info('Sync completed successfully', [
-                'inserted'      => $report->insertedCount,
-                'updated'       => $report->updatedCount,
-                'deleted'       => $report->deletedCount,
-                'initialInsert' => $report->initialInsertCount
+                'inserted'        => $report->insertedCount,
+                'updated'         => $report->updatedCount,
+                'deleted'         => $report->deletedCount,
+                'initialInsert'   => $report->initialInsertCount,
+                'loggedDeletions' => $report->loggedDeletionsCount,
             ]);
             return $report;
         } catch (\Throwable $e) {
-            // Transaction management for DML operations is now handled by TempToLiveSynchronizer
-            // This catch block now only needs to handle logging and cleanup
-
             $this->logger->error('Sync failed: ' . $e->getMessage(), [
-                'exception' => $e,
-                'source'    => $config->sourceTableName,
-                'target'    => $config->targetLiveTableName
+                'exception_class' => get_class($e),
+                'exception_trace' => $e->getTraceAsString(), // Log full trace for sync errors
+                'source'          => $config->sourceTableName,
+                'target'          => $config->targetLiveTableName
             ]);
 
             // Attempt to clean up temp table even on error
@@ -262,7 +253,11 @@ class GenericTableSyncer
                 $this->logger->warning('Failed to drop temp table during error handling: ' . $cleanupException->getMessage());
             }
 
-            throw new TableSyncerException('Sync failed: ' . $e->getMessage(), 0, $e);
+            // Re-throw as a TableSyncerException if it's not already one
+            if (!($e instanceof TableSyncerException)) {
+                throw new TableSyncerException('Sync failed: ' . $e->getMessage(), 0, $e);
+            }
+            throw $e;
         }
     }
 }
