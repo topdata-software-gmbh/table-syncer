@@ -6,11 +6,12 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TopdataSoftwareGmbh\TableSyncer\DTO\SyncReportDTO;
 use TopdataSoftwareGmbh\TableSyncer\DTO\TableSyncConfigDTO;
-use TopdataSoftwareGmbh\TableSyncer\Exception\TableSyncerException;
 use TopdataSoftwareGmbh\TableSyncer\Exception\ConfigurationException;
-use TopdataSoftwareGmbH\Util\UtilDebug;
-use Doctrine\DBAL\Exception as DBALException;
+use TopdataSoftwareGmbh\TableSyncer\Exception\TableSyncerException;
 
+/**
+ * 05/2025 created
+ */
 class GenericTableSyncer
 {
     private readonly GenericSchemaManager $schemaManager;
@@ -21,17 +22,15 @@ class GenericTableSyncer
     private readonly LoggerInterface $logger;
 
     public function __construct(
-        // Option 1: Only logger, create everything else (simplest for user)
-        LoggerInterface $logger,
-        // Option 2: Allow full DI by making other services optional
-        ?GenericSchemaManager $schemaManager = null,
-        ?GenericIndexManager  $indexManager = null,
-        ?GenericDataHasher    $dataHasher = null,
-        ?SourceToTempLoader   $sourceToTempLoader = null,
+        ?LoggerInterface        $logger = null,
+        ?GenericSchemaManager   $schemaManager = null,
+        ?GenericIndexManager    $indexManager = null,
+        ?GenericDataHasher      $dataHasher = null,
+        ?SourceToTempLoader     $sourceToTempLoader = null,
         ?TempToLiveSynchronizer $tempToLiveSynchronizer = null
-        // Note: No separate $logger parameter if it's always the first and required one
-    ) {
-        $this->logger = $logger; // Always use the provided logger
+    )
+    {
+        $this->logger = $logger ?? new NullLogger();
 
         // Instantiate dependencies if not provided
         $this->schemaManager = $schemaManager ?? new GenericSchemaManager($this->logger);
@@ -94,19 +93,37 @@ class GenericTableSyncer
                 // Create the view
                 $this->logger->info('Creating view', [
                     'view' => $viewName,
-                    'sql' => $createViewSql
+                    'sql'  => $createViewSql
                 ]);
                 $sourceConn->executeStatement($createViewSql);
 
                 $sourceConn->commit();
                 $this->logger->info('View created successfully', ['view' => $viewName]);
             } catch (\Exception $e) {
-                $sourceConn->rollBack();
+                // Check if a transaction is active before attempting to roll back.
+                // This is important for DB platforms like MySQL where DDL statements
+                // can cause implicit commits, potentially leaving no active transaction
+                // from the perspective of the initial beginTransaction() call.
+                if ($sourceConn->isTransactionActive()) {
+                    try {
+                        $sourceConn->rollBack();
+                    } catch (\Throwable $rollbackEx) {
+                        // Log the rollback failure, but prioritize re-throwing the original DDL exception.
+                        $this->logger->warning(
+                            "Rollback attempt failed after an error during view creation. Original error will be re-thrown.",
+                            [
+                                'view'                   => $viewName, // or $config->sourceTableName
+                                'original_error_message' => $e->getMessage(),
+                                'rollback_error_message' => $rollbackEx->getMessage()
+                            ]
+                        );
+                    }
+                }
                 throw $e;
             }
         } catch (\Throwable $e) {
             $this->logger->error('Failed to create source view', [
-                'view' => $config->sourceTableName,
+                'view'  => $config->sourceTableName,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
@@ -140,13 +157,13 @@ class GenericTableSyncer
             try {
                 $this->logger->debug('Executing dependency SQL', [
                     'index' => $index,
-                    'sql' => $sql
+                    'sql'   => $sql
                 ]);
                 $connection->executeStatement($sql);
             } catch (\Throwable $e) {
                 $this->logger->error('Failed to execute view dependency', [
                     'index' => $index,
-                    'sql' => $sql,
+                    'sql'   => $sql,
                     'error' => $e->getMessage()
                 ]);
                 throw new TableSyncerException(
@@ -158,10 +175,15 @@ class GenericTableSyncer
         }
     }
 
+    /**
+     * ==== MAIN ====
+     *
+     * 05/2025 created
+     */
     public function sync(TableSyncConfigDTO $config, int $currentBatchRevisionId): SyncReportDTO
     {
         $targetConn = $config->targetConnection;
-        
+
         // Handle view creation if configured
         try {
             $this->createSourceView($config);
@@ -173,7 +195,7 @@ class GenericTableSyncer
             // If view creation fails but it's not required, log and continue
             $this->logger->warning('Optional view creation failed, but continuing with sync', [
                 'source' => $config->sourceTableName,
-                'error' => $e->getMessage()
+                'error'  => $e->getMessage()
             ]);
         }
         // Transaction management for DML operations is now handled by TempToLiveSynchronizer
@@ -188,7 +210,7 @@ class GenericTableSyncer
 
             // 1. Ensure live table exists with correct schema
             $this->schemaManager->ensureLiveTable($config);
-            
+
             // 1.1 Ensure deleted log table exists if deletion logging is enabled
             if ($config->enableDeletionLogging) {
                 $this->logger->info('Deletion logging is enabled, ensuring deleted log table exists');
@@ -231,7 +253,7 @@ class GenericTableSyncer
                 'source'    => $config->sourceTableName,
                 'target'    => $config->targetLiveTableName
             ]);
-            
+
             // Attempt to clean up temp table even on error
             try {
                 $this->schemaManager->dropTempTable($config);
@@ -239,7 +261,7 @@ class GenericTableSyncer
             } catch (\Throwable $cleanupException) {
                 $this->logger->warning('Failed to drop temp table during error handling: ' . $cleanupException->getMessage());
             }
-            
+
             throw new TableSyncerException('Sync failed: ' . $e->getMessage(), 0, $e);
         }
     }
