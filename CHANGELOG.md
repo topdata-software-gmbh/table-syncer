@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+### Added
+- Optimized initial data synchronization by deferring secondary index creation until after bulk data insertion
+
 ## [1.1.0] - 2025-06-15
 ### Added
 - Optional deletion logging feature to track deleted records

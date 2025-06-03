@@ -1,7 +1,7 @@
 # Checklist: Deferred Indexing for Initial Loads
 
 ## Goal:
-- [ ] Optimize initial data synchronization by deferring the creation of secondary indexes on the live table until after the bulk data insertion is complete.
+- [x] Optimize initial data synchronization by deferring the creation of secondary indexes on the live table until after the bulk data insertion is complete.
 
 ## Affected Files:
 - `src/Service/GenericTableSyncer.php`
@@ -13,58 +13,58 @@
 
 ### Step 1: Modify `GenericTableSyncer::sync()` (`src/Service/GenericTableSyncer.php`)
 - **Flag for Initial State:**
-    - [ ] Add `liveTableWasInitiallyEmpty` boolean flag, initialized to `false`.
+    - [x] Add `liveTableWasInitiallyEmpty` boolean flag, initialized to `false`.
 - **Determine Live Table Emptiness (Pre-Sync):**
-    - [ ] Before step `1.2` (ensureDeletedLogTable), query `SELECT COUNT(*) FROM <live_table_name>`.
-    - [ ] If count is 0, set `liveTableWasInitiallyEmpty` to `true`.
-    - [ ] Log confirmation of empty live table and deferred secondary index creation.
-    - [ ] Implement robust error handling for the `COUNT(*)` query (e.g., log warning, assume not empty if check fails).
+    - [x] Before step `1.2` (ensureDeletedLogTable), query `SELECT COUNT(*) FROM <live_table_name>`.
+    - [x] If count is 0, set `liveTableWasInitiallyEmpty` to `true`.
+    - [x] Log confirmation of empty live table and deferred secondary index creation.
+    - [x] Implement robust error handling for the `COUNT(*)` query (e.g., log warning, assume not empty if check fails).
 - **Conditional Pre-Sync Indexing:**
-    - [ ] After determining emptiness and before temp table preparation (between steps `1.2` and `2`), if `!liveTableWasInitiallyEmpty`:
-        - [ ] Log that live table is not empty (or emptiness check failed) and secondary indexes will be ensured *before* synchronization.
-        - [ ] Call `this->indexManager->addIndicesToLiveTable($config)`.
+    - [x] After determining emptiness and before temp table preparation (between steps `1.2` and `2`), if `!liveTableWasInitiallyEmpty`:
+        - [x] Log that live table is not empty (or emptiness check failed) and secondary indexes will be ensured *before* synchronization.
+        - [x] Call `this->indexManager->addIndicesToLiveTable($config)`.
 - **Move Original Step 6:**
-    - [ ] Remove or comment out the original unconditional call to `this->indexManager->addIndicesToLiveTable($config)` at its old location (original step 6).
+    - [x] Remove or comment out the original unconditional call to `this->indexManager->addIndicesToLiveTable($config)` at its old location (original step 6).
 - **Conditional Post-Sync Indexing (New Logic - Original Step 8):**
-    - [ ] After `this->tempToLiveSynchronizer->synchronize()` (original step 7) and before dropping temp table:
-        - [ ] **If `liveTableWasInitiallyEmpty` AND `report->initialInsertCount > 0`:**
-            - [ ] Log that initial load completed and secondary indexes are being created/ensured post-load.
-            - [ ] Call `this->indexManager->addIndicesToLiveTable($config)`.
-            - [ ] Log success of post-load index creation.
-            - [ ] Implement `try-catch` around this call:
-                - [ ] On error, log a detailed error message (e.g., "Failed to create/ensure secondary indexes... post-initial-load. This may impact future sync performance.").
-                - [ ] Add an error message to `SyncReportDTO` (`$report->addLogMessage(..., 'error')`).
-                - [ ] Confirm the sync process itself is not failed by this specific error (data is already loaded).
-        - [ ] **Else if `liveTableWasInitiallyEmpty` AND `report->initialInsertCount === 0`:**
-            - [ ] Log that live table was empty, remained empty, and secondary indexes are being ensured.
-            - [ ] Call `this->indexManager->addIndicesToLiveTable($config)`.
+    - [x] After `this->tempToLiveSynchronizer->synchronize()` (original step 7) and before dropping temp table:
+        - [x] **If `liveTableWasInitiallyEmpty` AND `report->initialInsertCount > 0`:**
+            - [x] Log that initial load completed and secondary indexes are being created/ensured post-load.
+            - [x] Call `this->indexManager->addIndicesToLiveTable($config)`.
+            - [x] Log success of post-load index creation.
+            - [x] Implement `try-catch` around this call:
+                - [x] On error, log a detailed error message (e.g., "Failed to create/ensure secondary indexes... post-initial-load. This may impact future sync performance.").
+                - [x] Add an error message to `SyncReportDTO` (`$report->addLogMessage(..., 'error')`).
+                - [x] Confirm the sync process itself is not failed by this specific error (data is already loaded).
+        - [x] **Else if `liveTableWasInitiallyEmpty` AND `report->initialInsertCount === 0`:**
+            - [x] Log that live table was empty, remained empty, and secondary indexes are being ensured.
+            - [x] Call `this->indexManager->addIndicesToLiveTable($config)`.
 - **Adjust Step Numbering for Dropping Temp Table:**
-    - [ ] Ensure `this->schemaManager->dropTempTable($config)` is now effectively step 9 (or later if more steps are added).
+    - [x] Ensure `this->schemaManager->dropTempTable($config)` is now effectively step 9 (or later if more steps are added).
 - **Update Logging:**
-    - [ ] Adjust final "Sync completed" log message if necessary.
+    - [x] Adjust final "Sync completed" log message if necessary.
 - **Error Handling (Main `try-catch`):**
-    - [ ] Confirm no changes are needed in the main `catch (\Throwable $e)` block for this feature.
+    - [x] Confirm no changes are needed in the main `catch (\Throwable $e)` block for this feature.
 
 ---
 
 ### Step 2: Review `GenericSchemaManager::ensureLiveTable()` (`src/Service/GenericSchemaManager.php`)
-- [ ] Verify `ensureLiveTable()` correctly creates the table structure and its **primary key** (e.g., `_syncer_id`).
-- [ ] Confirm it does *not* create other secondary/business indexes (responsibility of `GenericIndexManager`).
-- [ ] (Likely no code changes required here).
+- [x] Verify `ensureLiveTable()` correctly creates the table structure and its **primary key** (e.g., `_syncer_id`).
+- [x] Confirm it does *not* create other secondary/business indexes (responsibility of `GenericIndexManager`).
+- [x] (Likely no code changes required here).
 
 ---
 
 ### Step 3: Review `GenericIndexManager::addIndicesToLiveTable()` (`src/Service/GenericIndexManager.php`)
-- [ ] Confirm the existing logic for adding content hash index and unique business PK index is sound.
-- [ ] Verify idempotency: `addIndexIfNotExists` (or similar `isset($indexes[$indexName])` check) correctly prevents duplicate index creation attempts.
-- [ ] (Likely no code changes required here).
+- [x] Confirm the existing logic for adding content hash index and unique business PK index is sound.
+- [x] Verify idempotency: `addIndexIfNotExists` (or similar `isset($indexes[$indexName])` check) correctly prevents duplicate index creation attempts.
+- [x] (Likely no code changes required here).
 
 ---
 
 ### Step 4: Review `TempToLiveSynchronizer::synchronize()` (`src/Service/TempToLiveSynchronizer.php`)
-- [ ] Confirm its responsibility remains focused on data operations (initial `INSERT INTO ... SELECT ...` or incremental changes).
-- [ ] Verify that `SyncReportDTO::$initialInsertCount` is correctly populated.
-- [ ] (Likely no code changes required here).
+- [x] Confirm its responsibility remains focused on data operations (initial `INSERT INTO ... SELECT ...` or incremental changes).
+- [x] Verify that `SyncReportDTO::$initialInsertCount` is correctly populated.
+- [x] (Likely no code changes required here).
 
 ---
 
