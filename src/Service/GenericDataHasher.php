@@ -64,7 +64,7 @@ class GenericDataHasher
         // Cast the result to an integer
         $affectedRows = (int)$result;
 
-        $this->logger->info('Content hashes added to temp table', ['affected_rows' => $affectedRows]);
+        $this->logger->info('Content hashes added to temp table', ['affected_rows' => number_format($affectedRows)]);
 
         return $affectedRows;
     }

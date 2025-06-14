@@ -109,6 +109,15 @@ class GenericSchemaManager
             // PKs must be notnull
             $options['notnull'] = true;
 
+            // NEW FIX: If a column is NOT NULL but introspection didn't find a default, provide one.
+            if (!isset($options['default']) || $options['default'] === 'NULL') {
+                $this->logger->debug(
+                    "PK column '{$def['name']}' is NOT NULL and has no default value from introspection. Assigning a sane default for temp table creation.",
+                    ['type' => $def['type']]
+                );
+                $options['default'] = $this->_getSaneDefaultValueForType($def['type']);
+            }
+
             $table->addColumn($targetPkColName, $def['type'], $options);
             $targetPkColumnNames[] = $targetPkColName;
         }
@@ -130,6 +139,15 @@ class GenericSchemaManager
             // Data columns in temp table are generally nullable unless source explicitly says notnull.
             // And we don't want autoincrement on data columns in temp table.
             $options['autoincrement'] = false;
+
+            // NEW FIX: Also apply to non-PK data columns that might be NOT NULL
+            if (($options['notnull'] ?? false) === true && (!isset($options['default']) || $options['default'] === 'NULL')) {
+                $this->logger->debug(
+                    "Data column '{$def['name']}' is NOT NULL and has no default value from introspection. Assigning a sane default for temp table creation.",
+                    ['type' => $def['type']]
+                );
+                $options['default'] = $this->_getSaneDefaultValueForType($def['type']);
+            }
 
             $table->addColumn($targetColName, $def['type'], $options);
         }
@@ -588,4 +606,32 @@ class GenericSchemaManager
             throw $e; // Re-throw
         }
     }
+
+    /**
+     * Gets a sane default value for a column type to prevent "invalid default value" errors during temp table creation.
+     *
+     * @param string $dbalTypeName The DBAL type name (e.g., from \Doctrine\DBAL\Types\Types).
+     * @return string|int|float|bool A safe default value.
+     */
+    private function _getSaneDefaultValueForType(string $dbalTypeName): string|int|float|bool
+    {
+        return match ($dbalTypeName) {
+            Types::INTEGER,
+            Types::BIGINT,
+            Types::SMALLINT             => 0,
+            Types::FLOAT,
+            Types::DECIMAL              => '0.0',
+            Types::BOOLEAN              => false, // DBAL handles converting this to 0 or 'false'
+            Types::DATE_MUTABLE,
+            Types::DATE_IMMUTABLE       => '1970-01-01',
+            Types::DATETIME_MUTABLE,
+            Types::DATETIME_IMMUTABLE,
+            Types::DATETIMETZ_MUTABLE,
+            Types::DATETIMETZ_IMMUTABLE => '1970-01-01 00:00:00',
+            // For all other types (string, text, guid, etc.), an empty string is a safe default.
+            default                     => '',
+        };
+    }
+
+
 }
