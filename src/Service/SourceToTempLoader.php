@@ -129,10 +129,10 @@ class SourceToTempLoader
 
                 if ($totalRowsLoaded === $rowsInCurrentBatch) { // First batch logging
                     $this->logger->debug('Executing first batch insert:', [
-                        'sql_structure' => $insertSqlColumnsPart . "(...multiple rows...)",
-                        'rows_in_batch' => $rowsInCurrentBatch,
+                        'sql_structure'    => $insertSqlColumnsPart . "(...multiple rows...)",
+                        'rows_in_batch'    => $rowsInCurrentBatch,
                         'num_params_total' => count($batchParameters),
-                        'params_per_row' => count($orderedTargetColumnNamesList),
+                        'params_per_row'   => count($orderedTargetColumnNamesList),
                         // 'first_row_params_example' => array_slice($batchParameters, 0, count($orderedTargetColumnNamesList)), // Uncomment for deep debug
                     ]);
                 }
@@ -141,8 +141,8 @@ class SourceToTempLoader
                     $targetConn->executeStatement($currentBatchInsertSql, $batchParameters);
                 } catch (\Exception $e) {
                     $this->logger->error('Failed to execute batch insert statement for temp table: ' . $e->getMessage(), [
-                        'sql_structure' => $insertSqlColumnsPart . "(...multiple rows...)",
-                        'rows_in_batch' => $rowsInCurrentBatch,
+                        'sql_structure'   => $insertSqlColumnsPart . "(...multiple rows...)",
+                        'rows_in_batch'   => $rowsInCurrentBatch,
                         'exception_class' => get_class($e),
                     ]);
                     throw $e; // Re-throw
@@ -153,7 +153,7 @@ class SourceToTempLoader
 
                 // Log progress periodically (e.g., every 10 batches)
                 if ($totalRowsLoaded > 0 && ($totalRowsLoaded % (self::INSERT_BATCH_SIZE * 10)) === 0) {
-                    $this->logger->debug("Loaded {$totalRowsLoaded} rows into temp table '{$config->targetTempTableName}' so far...");
+                    $this->logger->debug("Loaded " . number_format($totalRowsLoaded) . " rows into temp table '{$config->targetTempTableName}' so far...");
                 }
             }
         }
@@ -164,8 +164,8 @@ class SourceToTempLoader
             $currentBatchInsertSql = $insertSqlColumnsPart . $multiRowPlaceholdersSql;
 
             $this->logger->debug('Executing final batch insert for remaining rows:', [
-                'sql_structure' => $insertSqlColumnsPart . "(...multiple rows...)",
-                'rows_in_batch' => $rowsInCurrentBatch,
+                'sql_structure'    => $insertSqlColumnsPart . "(...multiple rows...)",
+                'rows_in_batch'    => $rowsInCurrentBatch,
                 'num_params_total' => count($batchParameters),
             ]);
 
@@ -173,15 +173,15 @@ class SourceToTempLoader
                 $targetConn->executeStatement($currentBatchInsertSql, $batchParameters);
             } catch (\Exception $e) {
                 $this->logger->error('Failed to execute final batch insert statement for temp table: ' . $e->getMessage(), [
-                    'sql_structure' => $insertSqlColumnsPart . "(...multiple rows...)",
-                    'rows_in_batch' => $rowsInCurrentBatch,
+                    'sql_structure'   => $insertSqlColumnsPart . "(...multiple rows...)",
+                    'rows_in_batch'   => $rowsInCurrentBatch,
                     'exception_class' => get_class($e),
                 ]);
                 throw $e; // Re-throw
             }
         }
 
-        $this->logger->info("Successfully loaded " . number_format($totalRowsLoaded, 0) . " rows from source '{$config->sourceTableName}' to temp table '{$config->targetTempTableName}'.");
+        $this->logger->info("Successfully loaded " . number_format($totalRowsLoaded) . " rows from source '{$config->sourceTableName}' to temp table '{$config->targetTempTableName}'.");
     }
 
     /**
