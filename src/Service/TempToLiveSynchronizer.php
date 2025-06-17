@@ -26,6 +26,7 @@ class TempToLiveSynchronizer
     /**
      * Synchronizes the temp table to the live table.
      * Performs set-based operations for updating, deleting, and inserting records.
+     * This method manages its own transaction for atomicity.
      *
      * @param TableSyncConfigDTO $config The configuration for the synchronization.
      * @param int $currentBatchRevisionId The current batch revision ID.
@@ -76,33 +77,18 @@ class TempToLiveSynchronizer
                 ));
                 $quotedColsToSelectTemp = array_map(fn($c) => $tempTable . "." . $targetConn->quoteIdentifier($c), $colsToSelectTemp);
 
-                if (empty($quotedColsToSelectTemp) || empty($quotedColsToInsertLive)) {
-                    $this->logger->warning("Cannot perform initial insert: column list for SELECT or INSERT is empty.", [
-                        'select_cols_count' => count($quotedColsToSelectTemp),
-                        'insert_cols_count' => count($quotedColsToInsertLive),
-                    ]);
-                    // If we return here, we need to ensure the transaction is handled.
-                    // It's better to let it flow to the commit/rollback at the end of the try block.
-                    // Or, if this is the ONLY operation, commit here and then return.
-                    // For now, let it flow. If it's an actual problem (e.g. no columns), an exception should have been thrown earlier or it's a config issue.
-                } elseif (count($quotedColsToSelectTemp) + 2 !== count($quotedColsToInsertLive)) { // Note: elseif to prevent re-evaluation if first was true
-                    $this->logger->error("Column count mismatch for initial insert.", [
-                        'select_cols' => $quotedColsToSelectTemp,
-                        'insert_cols' => $quotedColsToInsertLive,
-                    ]);
+                if (count($quotedColsToSelectTemp) + 2 !== count($quotedColsToInsertLive)) {
                     throw new TableSyncerException("Configuration error: Column count mismatch for initial insert into live table.");
-                } else { // Only execute if column counts are valid
-                    $sqlInitialInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLive) . ") "
-                        . "SELECT " . implode(', ', $quotedColsToSelectTemp) . ", ?, ? " // Two placeholders for createdRevisionId and lastModifiedRevisionId
-                        . "FROM {$tempTable}";
-
-                    $this->logger->debug('Executing initial insert SQL for live table', ['sql' => $sqlInitialInsert]);
-                    $affectedRows = $targetConn->executeStatement($sqlInitialInsert, [$currentBatchRevisionId, $currentBatchRevisionId]);
-                    $report->initialInsertCount = (int)$affectedRows;
-                    $report->addLogMessage("Initial import: {$report->initialInsertCount} rows inserted into '{$config->targetLiveTableName}'.");
                 }
-                // After initial import, the subsequent standard sync logic (updates, deletes, inserts) is typically skipped for this run.
-                // So, we should commit if we started a transaction and then return.
+
+                $sqlInitialInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLive) . ") "
+                    . "SELECT " . implode(', ', $quotedColsToSelectTemp) . ", ?, ? " // createdRevisionId and lastModifiedRevisionId
+                    . "FROM {$tempTable}";
+
+                $affectedRows = $targetConn->executeStatement($sqlInitialInsert, [$currentBatchRevisionId, $currentBatchRevisionId]);
+                $report->initialInsertCount = (int)$affectedRows;
+                $report->addLogMessage("Initial import: {$report->initialInsertCount} rows inserted into '{$config->targetLiveTableName}'.");
+
                 if ($transactionStartedByThisMethod && $targetConn->isTransactionActive()) {
                     $targetConn->commit();
                     $this->logger->debug('Transaction committed within TempToLiveSynchronizer after initial import.');
@@ -118,10 +104,8 @@ class TempToLiveSynchronizer
             }
             $joinConditionStr = implode(' AND ', $joinConditions);
             if (empty($joinConditionStr)) {
-                $this->logger->error("Cannot synchronize: No primary key join conditions defined. Check TableSyncConfigDTO.primaryKeyColumnMap.");
                 throw new TableSyncerException("Configuration error: No primary key join conditions for synchronization.");
             }
-            $this->logger->debug('Join condition for sync operations', ['condition' => $joinConditionStr]);
 
             // --- B. Handle Updates ---
             $setClausesForUpdate = [];
@@ -133,135 +117,131 @@ class TempToLiveSynchronizer
             $setClausesForUpdate[] = "{$liveTable}." . $targetConn->quoteIdentifier($meta->updatedAt) . " = CURRENT_TIMESTAMP";
             $setClausesForUpdate[] = "{$liveTable}." . $targetConn->quoteIdentifier($meta->lastModifiedRevisionId) . " = ?";
 
-            if (empty($dataColsForUpdate)) { // Note: $dataColsForUpdate will include at least $meta->contentHash if configured
-                $this->logger->warning("No data columns configured for update beyond metadata. Only metadata (updatedAt, batchRevision, contentHash) will be updated on hash mismatch.");
-            }
-
-            // FIX: Qualify ambiguous column in WHERE clause
-            $liveTableContentHashForWhere = $liveTable . "." . $targetConn->quoteIdentifier($meta->contentHash);
-            $tempTableContentHashForWhere = $tempTable . "." . $targetConn->quoteIdentifier($meta->contentHash);
-
             $sqlUpdate = "UPDATE {$liveTable} "
                 . "INNER JOIN {$tempTable} ON {$joinConditionStr} "
                 . "SET " . implode(', ', $setClausesForUpdate) . " "
-                . "WHERE {$liveTableContentHashForWhere} <> {$tempTableContentHashForWhere}";
+                . "WHERE {$liveTable}." . $targetConn->quoteIdentifier($meta->contentHash) . " <> {$tempTable}." . $targetConn->quoteIdentifier($meta->contentHash);
 
-            $this->logger->debug('Executing update SQL for live table', ['sql' => $sqlUpdate]);
             $affectedRowsUpdate = $targetConn->executeStatement($sqlUpdate, [$currentBatchRevisionId]);
             $report->updatedCount = (int)$affectedRowsUpdate;
-            $report->addLogMessage("Rows updated in '{$config->targetLiveTableName}' due to hash mismatch: {$report->updatedCount}.");
+            $report->addLogMessage("Rows updated in '{$config->targetLiveTableName}': {$report->updatedCount}.");
 
             // --- C. Handle Deletes ---
-            $targetPkColumns = $config->getTargetPrimaryKeyColumns(); // This is already available
+            $targetPkColumns = $config->getTargetPrimaryKeyColumns();
+            $deletionsWereLogged = false;
+
             if (empty($targetPkColumns)) {
-                $this->logger->warning("Cannot perform deletes: No target primary key columns defined for LEFT JOIN NULL check. This implies a configuration issue if deletes are expected.");
+                $this->logger->warning("Cannot perform deletes: No target primary key columns defined.");
             } else {
-                // Ensure the column for NULL check is from the TEMP table after the LEFT JOIN
-                $tempTablePkColForNullCheck = $tempTable . "." . $targetConn->quoteIdentifier($targetPkColumns[0]);
-                
-                // --- C.1. Log deletions if enabled ---
+                // --- C.1 Log deletions if enabled (this is the expensive identification step)
                 if ($config->enableDeletionLogging && !empty($config->targetDeletedLogTableName)) {
-                    $this->logger->debug('Deletion logging is enabled, logging deletions before performing delete operation');
-                    
-                    // Get quoted identifiers for tables
+                    $this->logger->debug("Deletion logging enabled. Identifying rows to be deleted from '{$config->targetLiveTableName}'.");
+
                     $deletedLogTableIdentifier = $targetConn->quoteIdentifier($config->targetDeletedLogTableName);
-                    $liveTableIdentifierForLog = $targetConn->quoteIdentifier($config->targetLiveTableName) . ' lt'; // Alias as 'lt'
-                    $tempTableIdentifierForLog = $targetConn->quoteIdentifier($config->targetTempTableName) . ' tt'; // Alias as 'tt'
-                    
-                    // Get quoted syncer_id column from live table
-                    $liveSyncerIdCol = $targetConn->quoteIdentifier($config->metadataColumns->id);
-                    
-                    // Create join conditions with aliases
+                    $liveTableIdentifierForLog = $targetConn->quoteIdentifier($config->targetLiveTableName) . ' lt';
+                    $tempTableIdentifierForLog = $targetConn->quoteIdentifier($config->targetTempTableName) . ' tt';
+                    $liveSyncerIdCol = $targetConn->quoteIdentifier($meta->id);
                     $logJoinConditions = [];
-                    foreach ($config->getTargetPrimaryKeyColumns() as $keyCol) {
+                    foreach ($targetPkColumns as $keyCol) {
                         $quotedKeyCol = $targetConn->quoteIdentifier($keyCol);
                         $logJoinConditions[] = "lt.{$quotedKeyCol} = tt.{$quotedKeyCol}";
                     }
                     $logJoinConditionStr = implode(' AND ', $logJoinConditions);
-                    
-                    // Define columns for the log table insert
+                    $tempTableBusinessPkColForNullCheck = 'tt.' . $targetConn->quoteIdentifier($targetPkColumns[0]);
                     $logTableInsertCols = [
                         $targetConn->quoteIdentifier('deleted_syncer_id'),
                         $targetConn->quoteIdentifier('deleted_at_revision_id'),
                         $targetConn->quoteIdentifier('deletion_timestamp')
                     ];
-                    
-                    // Ensure the column for NULL check is from the TEMP table after the LEFT JOIN with alias
-                    $tempTableBusinessPkColForNullCheck = 'tt.' . $targetConn->quoteIdentifier($targetPkColumns[0]);
-                    
-                    // Construct the SQL to log deletions
+
                     $sqlLogDeletes = "INSERT INTO {$deletedLogTableIdentifier} (" . implode(', ', $logTableInsertCols) . ") "
                         . "SELECT lt.{$liveSyncerIdCol}, ?, CURRENT_TIMESTAMP "
                         . "FROM {$liveTableIdentifierForLog} "
                         . "LEFT JOIN {$tempTableIdentifierForLog} ON {$logJoinConditionStr} "
                         . "WHERE {$tempTableBusinessPkColForNullCheck} IS NULL";
-                    
-                    $paramsForLog = [$currentBatchRevisionId];
-                    
+
                     try {
-                        $this->logger->debug('Executing log deletions SQL', ['sql' => $sqlLogDeletes]);
-                        $affectedRowsLog = $targetConn->executeStatement($sqlLogDeletes, $paramsForLog);
+                        $affectedRowsLog = $targetConn->executeStatement($sqlLogDeletes, [$currentBatchRevisionId]);
                         $report->loggedDeletionsCount = (int)$affectedRowsLog;
+                        if ($report->loggedDeletionsCount > 0) {
+                            $deletionsWereLogged = true;
+                        }
                         $report->addLogMessage("Deletions logged to '{$config->targetDeletedLogTableName}': {$report->loggedDeletionsCount}.");
                     } catch (\Throwable $e) {
-                        $this->logger->error("Failed to log deletions: " . $e->getMessage(), ['exception' => $e]);
                         throw new TableSyncerException("Failed to log deletions: " . $e->getMessage(), 0, $e);
                     }
-                } else {
-                    $this->logger->debug('Deletion logging is not enabled, skipping deletion logging');
                 }
-                
-                // --- C.2. Perform the actual delete operation ---
-                $sqlDelete = "DELETE {$liveTable} FROM {$liveTable} " // MySQL specific syntax for aliasing in DELETE with JOIN
-                    . "LEFT JOIN {$tempTable} ON {$joinConditionStr} "
-                    . "WHERE {$tempTablePkColForNullCheck} IS NULL";
 
-                $this->logger->debug('Executing delete SQL for live table', ['sql' => $sqlDelete]);
-                $affectedRowsDelete = $targetConn->executeStatement($sqlDelete);
-                $report->deletedCount = (int)$affectedRowsDelete;
-                $report->addLogMessage("Rows deleted from '{$config->targetLiveTableName}' (not in source/temp): {$report->deletedCount}.");
+                // --- C.2 Perform the actual delete operation
+                $sqlDelete = '';
+                $paramsDelete = [];
+
+                if ($deletionsWereLogged) {
+                    // OPTIMIZED PATH: Use the log table for a fast delete by joining on indexed PKs
+                    $this->logger->debug('Executing optimized delete using the deletion log table.');
+                    $deletedLogTableIdentifier = $targetConn->quoteIdentifier($config->targetDeletedLogTableName);
+                    $liveTableForDelete = $liveTable . ' live'; // alias
+                    $logTableForDelete = $deletedLogTableIdentifier . ' log'; // alias
+
+                    $sqlDelete = "DELETE live FROM {$liveTableForDelete} "
+                        . "INNER JOIN {$logTableForDelete} "
+                        . "ON live.{$targetConn->quoteIdentifier($meta->id)} = log.{$targetConn->quoteIdentifier('deleted_syncer_id')} "
+                        . "WHERE log.{$targetConn->quoteIdentifier('deleted_at_revision_id')} = ?";
+
+                    $paramsDelete = [$currentBatchRevisionId];
+                } else {
+                    // FALLBACK PATH: Logging is disabled or nothing was logged, use original (slower) method
+                    $this->logger->debug('Executing original delete using LEFT JOIN (logging disabled or no deletions found).');
+                    $tempTablePkColForNullCheck = $tempTable . "." . $targetConn->quoteIdentifier($targetPkColumns[0]);
+                    $sqlDelete = "DELETE {$liveTable} FROM {$liveTable} "
+                        . "LEFT JOIN {$tempTable} ON {$joinConditionStr} "
+                        . "WHERE {$tempTablePkColForNullCheck} IS NULL";
+                }
+
+                if (!empty($sqlDelete)) {
+                    $this->logger->debug('Executing delete SQL for live table', ['sql' => $sqlDelete]);
+                    $affectedRowsDelete = $targetConn->executeStatement($sqlDelete, $paramsDelete);
+                    $report->deletedCount = (int)$affectedRowsDelete;
+                    $report->addLogMessage("Rows deleted from '{$config->targetLiveTableName}': {$report->deletedCount}.");
+
+                    if ($config->enableDeletionLogging && $report->loggedDeletionsCount !== $report->deletedCount) {
+                        $this->logger->warning('Logged deletion count does not match actual deleted count.', [
+                            'logged_count' => $report->loggedDeletionsCount,
+                            'deleted_count' => $report->deletedCount,
+                        ]);
+                    }
+                }
             }
 
             // --- D. Handle Inserts ---
-            $colsToInsertLiveForNew = array_unique(array_merge( // Renamed to avoid conflict with initial import var
+            $colsToInsertLiveForNew = array_unique(array_merge(
                 $config->getTargetPrimaryKeyColumns(),
                 $config->getTargetDataColumns(),
                 [$meta->contentHash, $meta->createdAt, $meta->createdRevisionId, $meta->lastModifiedRevisionId]
             ));
             $quotedColsToInsertLiveForNew = array_map(fn($c) => $targetConn->quoteIdentifier($c), $colsToInsertLiveForNew);
 
-            $colsToSelectTempForNew = array_unique(array_merge( // Renamed
+            $colsToSelectTempForNew = array_unique(array_merge(
                 $config->getTargetPrimaryKeyColumns(),
                 $config->getTargetDataColumns(),
                 [$meta->contentHash, $meta->createdAt]
             ));
             $quotedColsToSelectTempForNew = array_map(fn($c) => $tempTable . "." . $targetConn->quoteIdentifier($c), $colsToSelectTempForNew);
 
-            if (empty($quotedColsToSelectTempForNew) || empty($quotedColsToInsertLiveForNew)) {
-                $this->logger->warning("Cannot perform new inserts: column list for SELECT or INSERT is empty.", [
-                    'select_cols_count' => count($quotedColsToSelectTempForNew),
-                    'insert_cols_count' => count($quotedColsToInsertLiveForNew),
-                ]);
-            } elseif (count($quotedColsToSelectTempForNew) + 2 !== count($quotedColsToInsertLiveForNew)) {
-                $this->logger->error("Column count mismatch for new inserts.", [
-                    'select_cols' => $quotedColsToSelectTempForNew,
-                    'insert_cols' => $quotedColsToInsertLiveForNew,
-                ]);
+            if (count($quotedColsToSelectTempForNew) + 2 !== count($quotedColsToInsertLiveForNew)) {
                 throw new TableSyncerException("Configuration error: Column count mismatch for new inserts into live table.");
-            } else {
-                // Ensure the column for NULL check is from the LIVE table after the LEFT JOIN
-                $liveTablePkColForNullCheck = $liveTable . "." . $targetConn->quoteIdentifier($targetPkColumns[0]);
-                $sqlInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLiveForNew) . ") "
-                    . "SELECT " . implode(', ', $quotedColsToSelectTempForNew) . ", ?, ? " // Two placeholders for createdRevisionId and lastModifiedRevisionId
-                    . "FROM {$tempTable} "
-                    . "LEFT JOIN {$liveTable} ON {$joinConditionStr} "
-                    . "WHERE {$liveTablePkColForNullCheck} IS NULL";
-
-                $this->logger->debug('Executing insert SQL for new rows in live table', ['sql' => $sqlInsert]);
-                $affectedRowsInsert = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId, $currentBatchRevisionId]);
-                $report->insertedCount = (int)$affectedRowsInsert;
-                $report->addLogMessage("New rows inserted into '{$config->targetLiveTableName}': {$report->insertedCount}.");
             }
+
+            $liveTablePkColForNullCheck = $liveTable . "." . $targetConn->quoteIdentifier($targetPkColumns[0]);
+            $sqlInsert = "INSERT INTO {$liveTable} (" . implode(', ', $quotedColsToInsertLiveForNew) . ") "
+                . "SELECT " . implode(', ', $quotedColsToSelectTempForNew) . ", ?, ? " // createdRevisionId and lastModifiedRevisionId
+                . "FROM {$tempTable} "
+                . "LEFT JOIN {$liveTable} ON {$joinConditionStr} "
+                . "WHERE {$liveTablePkColForNullCheck} IS NULL";
+
+            $affectedRowsInsert = $targetConn->executeStatement($sqlInsert, [$currentBatchRevisionId, $currentBatchRevisionId]);
+            $report->insertedCount = (int)$affectedRowsInsert;
+            $report->addLogMessage("New rows inserted into '{$config->targetLiveTableName}': {$report->insertedCount}.");
 
             // Commit transaction if we started it
             if ($transactionStartedByThisMethod && $targetConn->isTransactionActive()) {
@@ -275,13 +255,9 @@ class TempToLiveSynchronizer
                     $targetConn->rollBack();
                     $this->logger->warning('Transaction rolled back within TempToLiveSynchronizer due to an error.', ['exception_message' => $e->getMessage(), 'exception_class' => get_class($e)]);
                 } catch (\Throwable $rollbackException) {
-                    $this->logger->error(
-                        'Failed to roll back transaction in TempToLiveSynchronizer: ' . $rollbackException->getMessage(),
-                        ['original_exception_message' => $e->getMessage(), 'rollback_exception_class' => get_class($rollbackException)]
-                    );
+                    $this->logger->error('Failed to roll back transaction in TempToLiveSynchronizer: ' . $rollbackException->getMessage());
                 }
             } else if ($targetConn->isTransactionActive() && !$transactionStartedByThisMethod) {
-                // Log if a transaction was active but not started by this method
                 $this->logger->warning('Error in TempToLiveSynchronizer, but transaction was managed externally and remains active.', ['exception_message' => $e->getMessage()]);
             }
             // Re-throw the original exception
